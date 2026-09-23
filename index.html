@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#87d4ef" />
+    <link rel="icon" type="image/png" href="./favicon.png" />
+    <link rel="apple-touch-icon" href="./favicon.png" />
+    <title>史蒂夫快跑 Running Steve</title>
+    <script type="module" crossorigin src="./assets/index-BugWExL5.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-bVdfvyWQ.css">
+  </head>
+  <body>
+    <main id="app">
+      <canvas id="game-canvas" aria-label="史蒂夫快跑游戏画面"></canvas>
+      <div id="flash-overlay" aria-hidden="true"></div>
+      <div id="jackpot-overlay" aria-hidden="true"></div>
+      <div id="score-pop" aria-hidden="true"></div>
+
+      <section id="hud" aria-live="polite">
+        <div class="hud-cluster">
+          <div class="hud-metric">
+            <span>距离</span>
+            <strong><span id="distance-value">0</span><small> m</small></strong>
+          </div>
+          <div class="hud-metric">
+            <span>掉落物</span>
+            <strong id="fish-value">0</strong>
+          </div>
+          <div class="hud-metric combo">
+            <span>连击</span>
+            <strong id="combo-value">×1</strong>
+          </div>
+        </div>
+        <div class="hud-cluster right">
+          <div class="hud-metric">
+            <span>速度</span>
+            <strong><span id="speed-value">0.0</span></strong>
+          </div>
+          <div class="hud-metric">
+            <span>最佳</span>
+            <strong id="best-value">0</strong>
+          </div>
+          <button id="pause-button" type="button" data-action="pause" aria-label="暂停">⏸</button>
+        </div>
+        <div id="status-line">准备出发</div>
+      </section>
+
+      <section id="title-panel" class="panel">
+        <p class="eyebrow">主世界 · 沿海小径</p>
+        <h1>史蒂夫跑酷</h1>
+        <p class="lede">变道躲方块 · 跳过沙堆 · 蹲下躲幻翼 · 一路捡曲奇和蛋糕</p>
+        <ul class="controls-hint">
+          <li><kbd>←</kbd><kbd>→</kbd><kbd>A</kbd><kbd>D</kbd> 变道</li>
+          <li><kbd>空格</kbd><kbd>↑</kbd><kbd>W</kbd> 跳跃</li>
+          <li><kbd>↓</kbd><kbd>S</kbd><kbd>Shift</kbd> 蹲下（点按）</li>
+          <li><kbd>Esc</kbd> 暂停</li>
+        </ul>
+        <ul class="controls-hint touch-hint">
+          <li>←→ 滑动变道 · 上滑跳跃</li>
+          <li>下滑蹲下 · 也可用下方按键</li>
+        </ul>
+        <div class="actions">
+          <button class="primary" type="button" data-action="start">开始奔跑</button>
+        </div>
+      </section>
+
+      <section id="pause-panel" class="panel" hidden>
+        <h2>暂停</h2>
+        <p class="lede">海风正好，歇一口再走 · 按 <kbd>Esc</kbd> 继续</p>
+        <div class="actions">
+          <button class="primary" type="button" data-action="pause">继续</button>
+          <button class="ghost" type="button" data-action="restart">重新开始</button>
+          <button class="ghost" type="button" data-action="home">返回主页</button>
+        </div>
+      </section>
+
+      <section id="gameover-panel" class="panel" hidden>
+        <h2>被击中啦</h2>
+        <p id="fail-reason" class="reason">撞上了障碍</p>
+        <div class="results">
+          <div><span>距离</span><strong id="final-distance">0 m</strong></div>
+          <div><span>掉落物</span><strong id="final-fish">0</strong></div>
+          <div><span>最佳</span><strong id="final-best">0</strong></div>
+        </div>
+        <div class="actions">
+          <button class="primary" type="button" data-action="restart">再来一次</button>
+          <button class="ghost" type="button" data-action="home">返回主页</button>
+        </div>
+      </section>
+
+      <div id="touch-controls" aria-hidden="true">
+        <div class="touch-side left">
+          <button type="button" data-action="left" aria-label="向左变道">◀</button>
+          <button type="button" data-action="duck" aria-label="蹲下">蹲</button>
+        </div>
+        <div class="touch-side right">
+          <button type="button" data-action="jump" aria-label="跳跃">跳</button>
+          <button type="button" data-action="right" aria-label="向右变道">▶</button>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
