@@ -24,13 +24,11 @@ const GRAVITY = 28;
 const JUMP_V = 10.5;
 const GROUND_Y = 0;
 const DUCK_DURATION = 0.55;
-const COMBO_EVERY = 5;
 const FISH_HALF = new THREE.Vector3(0.35, 0.3, 0.35);
 
 export type GameHooks = {
   onRunEnd?: (run: {
     distance: number;
-    score: number;
     maxCombo: number;
     durationMs: number;
     cookies: number;
@@ -38,6 +36,7 @@ export type GameHooks = {
     failReason: string;
   }) => void;
   onReturnHome?: () => void;
+  onRunStart?: () => void;
 };
 
 export class Game {
@@ -77,11 +76,10 @@ export class Game {
   private elapsed = 0;
   private runTime = 0;
   private distance = 0;
-  private fishScore = 0;
   private combo = 1;
   private comboTimer = 0;
   private pickupStreak = 0;
-  private runMaxCombo = 1;
+  private runMaxCombo = 0;
   private runCookies = 0;
   private runCakes = 0;
   private best = 0;
@@ -208,7 +206,7 @@ export class Game {
     this.bursts.update(delta, this.state === 'playing' ? this.speed * gameDelta : 0);
     this.cameraRig.update(delta, this.player.group.position, this.tuning.cameraLag, this.lean);
     this.shake.update(delta, this.camera);
-    this.hud.update(this.distance, this.fishScore, this.combo, this.best, this.speed);
+    this.hud.update(this.distance, this.combo, this.best, this.speed);
     this.publishDiagnostics();
   }
 
@@ -354,26 +352,49 @@ export class Game {
       return 'seagull';
     };
 
-    // Safety window: only fish
-    if (roll < 0.18) {
-      this.spawnFishLine(primary, z, this.rng() < 0.12 ? 'gold' : 'fish');
+    // Safety window: ground pickups
+    if (roll < 0.12) {
+      this.spawnFishLine(primary, z, this.rng() < 0.12 ? 'gold' : 'fish', 'ground');
       return;
     }
 
-    // Single obstacle + fish line in free lane
+    // Single obstacle + riskier pickup placement
     if (roll < 0.55 || progress < 150) {
-      this.spawnObstacle(pickKind(), primary, z);
-      const free = secondary;
-      this.spawnFishLine(free, z + 1.5, this.rng() < 0.1 ? 'gold' : 'fish');
+      const kind = pickKind();
+      this.spawnObstacle(kind, primary, z);
+      const placeRoll = this.rng();
+      if (placeRoll < 0.35) {
+        // above obstacle — must jump
+        this.spawnFishLine(primary, z + 0.4, this.rng() < 0.15 ? 'gold' : 'fish', 'jump');
+      } else if (placeRoll < 0.55) {
+        this.spawnFishLine(secondary, z + 1.5, this.rng() < 0.1 ? 'gold' : 'fish', 'ground');
+      } else if (placeRoll < 0.7) {
+        this.spawnFishLine(secondary, z + 1.2, this.rng() < 0.12 ? 'gold' : 'fish', 'duck');
+      } else {
+        this.spawnFishLine(secondary, z + 1.5, this.rng() < 0.1 ? 'gold' : 'fish', 'ground');
+      }
       return;
     }
 
-    // Two obstacles, one safe lane
-    this.spawnObstacle(pickKind(), primary, z);
-    const secondKind = progress > 350 ? pickKind() : this.rng() < 0.5 ? 'sandcastle' : 'driftwood';
-    this.spawnObstacle(secondKind, secondary, z + this.rng() * 1.2);
+    // Two obstacles + mixed risk
+    const kindA = pickKind();
+    this.spawnObstacle(kindA, primary, z);
+    const kindB = progress > 350 ? pickKind() : this.rng() < 0.5 ? 'sandcastle' : 'driftwood';
+    this.spawnObstacle(kindB, secondary, z + this.rng() * 1.2);
     const safe = lanes.find((l) => l !== primary && l !== secondary) ?? 0;
-    this.spawnFishLine(safe, z + 0.5, 'fish');
+    const risk = this.rng();
+    if (risk < 0.3) {
+      this.spawnFishLine(primary, z + 0.2, 'fish', 'jump');
+    } else if (risk < 0.5) {
+      this.spawnFishLine(safe, z + 0.8, 'fish', 'duck');
+    } else {
+      this.spawnFishLine(safe, z + 0.5, 'fish', 'ground');
+    }
+    // rare phantom-under reward
+    if (progress > 200 && this.rng() < 0.12) {
+      this.spawnObstacle('seagull', safe, z + 2.2);
+      this.spawnFishLine(safe, z + 2.2, 'gold', 'duck');
+    }
   }
 
   private spawnObstacle(kind: ObstacleKind, lane: number, z: number): void {
@@ -382,15 +403,22 @@ export class Game {
     o.spawn(kind, lane, z);
   }
 
-  private spawnFishLine(lane: number, z: number, kind: 'fish' | 'gold'): void {
+  private spawnFishLine(
+    lane: number,
+    z: number,
+    kind: 'fish' | 'gold',
+    placement: 'ground' | 'jump' | 'duck' = 'ground',
+  ): void {
     const count = kind === 'gold' ? 1 : 3;
     const spacing = 1.55;
     for (let i = 0; i < count; i += 1) {
       const f = this.fish.find((item) => !item.active && !item.group.visible);
       if (!f) return;
-      // Even Z spacing; gentle arc only — never stacked mid-line
       const t = count === 1 ? 0.5 : i / (count - 1);
-      const height = kind === 'gold' ? 0.85 : 0.55 + Math.sin(t * Math.PI) * 0.22;
+      let height = 0.55 + Math.sin(t * Math.PI) * 0.22;
+      if (kind === 'gold') height = Math.max(height, 0.85);
+      if (placement === 'jump') height = 1.35 + Math.sin(t * Math.PI) * 0.35;
+      if (placement === 'duck') height = 0.35;
       f.spawn(kind, lane, z - i * spacing, height);
     }
   }
@@ -421,29 +449,24 @@ export class Game {
     }
   }
 
-  private collectFish(kind: 'fish' | 'gold', value: number, at: THREE.Vector3): void {
+  private collectFish(kind: 'fish' | 'gold', _value: number, at: THREE.Vector3): void {
+    // Consecutive pickups: +1 combo each (no pickup score)
     this.pickupStreak += 1;
     this.comboTimer = 1.4;
-    // Every 5 pickups raise the multiplier by +1
-    const nextCombo = 1 + Math.floor(this.pickupStreak / COMBO_EVERY);
-    const comboUp = nextCombo > this.combo;
-    this.combo = nextCombo;
+    this.combo = this.pickupStreak;
     if (this.combo > this.runMaxCombo) this.runMaxCombo = this.combo;
     if (kind === 'gold') this.runCakes += 1;
     else this.runCookies += 1;
-    const gained = value * this.combo;
-    this.fishScore += gained;
     this.audio.pickup(this.combo, kind === 'gold');
     this.hud.flashPickup();
-    if (comboUp) this.hud.flashCombo(this.combo);
-    // Keep camera steady on pickups — shake/FOV punch read as screen twitch
+    if (this.combo > 1) this.hud.flashCombo(this.combo);
     this.shake.addTrauma(kind === 'gold' ? 0.03 : 0.02);
     const burstKind: BurstKind = kind === 'gold' ? 'cake' : 'cookie';
     if (!this.reducedMotion) this.bursts.spawn(at, burstKind);
     if (kind === 'gold') {
-      this.hud.flashJackpot(gained);
+      this.hud.flashJackpot(this.combo);
     } else {
-      this.hud.flashScorePop(gained);
+      this.hud.flashScorePop(this.combo);
     }
   }
 
@@ -470,10 +493,9 @@ export class Game {
       this.best = Math.floor(this.distance);
       this.saveBest(this.best);
     }
-    this.hud.showGameOver(this.distance, this.fishScore, this.best, reason);
+    this.hud.showGameOver(this.distance, this.runMaxCombo, this.best, reason);
     this.hooks.onRunEnd?.({
       distance: Math.floor(this.distance),
-      score: Math.floor(this.fishScore),
       maxCombo: this.runMaxCombo,
       durationMs: Math.floor(this.runTime * 1000),
       cookies: this.runCookies,
@@ -493,6 +515,7 @@ export class Game {
     this.state = 'playing';
     this.hud.showPlaying();
     this.audio.ui();
+    this.hooks.onRunStart?.();
   }
 
   private returnHome(): void {
@@ -505,11 +528,10 @@ export class Game {
 
   private resetRun(): void {
     this.distance = 0;
-    this.fishScore = 0;
     this.combo = 1;
     this.comboTimer = 0;
     this.pickupStreak = 0;
-    this.runMaxCombo = 1;
+    this.runMaxCombo = 0;
     this.runCookies = 0;
     this.runCakes = 0;
     this.runTime = 0;
@@ -573,7 +595,7 @@ export class Game {
         return {
           combo: this.combo,
           streak: this.pickupStreak,
-          score: this.fishScore,
+          maxCombo: this.runMaxCombo,
         };
       },
       setState: (name: string) => {
@@ -626,7 +648,7 @@ export class Game {
       frame: this.frame,
       elapsed: this.elapsed,
       state: this.state,
-      score: this.fishScore,
+      score: 0,
       distance: this.distance,
       combo: this.combo,
       best: this.best,

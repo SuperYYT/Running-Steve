@@ -82,14 +82,15 @@ export class Track {
     ocean.position.set(0, -0.15, -40);
     this.group.add(ocean);
 
-    // Grass banks
+    // Grass banks (slight Y gap vs dirt strip avoids z-fight)
     for (const side of [-1, 1]) {
       const grass = this.mesh(new THREE.BoxGeometry(6, 0.35, 220), this.mat('#5d9c3e', 0.9, 0));
-      grass.position.set(side * 7.2, 0.05, -40);
+      grass.position.set(side * 7.2, 0.08, -40);
       grass.receiveShadow = true;
       this.group.add(grass);
-      const dirt = this.mesh(new THREE.BoxGeometry(6, 0.15, 220), this.mat('#8b5a2b', 0.9, 0));
-      dirt.position.set(side * 7.2, -0.1, -40);
+      const dirt = this.mesh(new THREE.BoxGeometry(6.02, 0.18, 220), this.mat('#8b5a2b', 0.9, 0));
+      dirt.position.set(side * 7.2, -0.18, -40);
+      dirt.receiveShadow = false;
       this.group.add(dirt);
     }
 
@@ -207,6 +208,9 @@ export class Track {
       metalness,
       emissive: emissive ?? '#000000',
       emissiveIntensity,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
     });
     this.materials.push(m);
     return m;

@@ -1,8 +1,16 @@
 import type { LeaderRow, RunSummary, SessionUser } from './AccountApi';
-import { fetchLeaderboard, fetchMe, loginHref, logout, submitScore } from './AccountApi';
+import {
+  fetchLeaderboard,
+  fetchMe,
+  loginHref,
+  logout,
+  startRun,
+  submitScore,
+} from './AccountApi';
 
 export class AccountPanel {
   private user: SessionUser | null = null;
+  private runToken = '';
 
   constructor() {
     void this.refresh();
@@ -33,44 +41,62 @@ export class AccountPanel {
     }
     board.dataset.state = 'ready';
     this.renderBoard('#board-distance', data.distance, 'm');
-    this.renderBoard('#board-score', data.score, '分');
+    this.renderBoard('#board-combo', data.combo, '');
   }
 
-  async submitRun(run: RunSummary): Promise<void> {
+  async beginRunToken(): Promise<void> {
+    this.runToken = '';
+    if (!this.user) return;
+    const started = await startRun();
+    if (started) this.runToken = started.token;
+  }
+
+  async submitRun(run: Omit<RunSummary, 'runToken'>): Promise<void> {
     if (!this.user) {
       this.setAuthStatus('登录 MineBBS 后成绩可上榜');
       return;
     }
-    const result = await submitScore(run);
+    if (!this.runToken) {
+      this.setAuthStatus('本局未登记，成绩未上传');
+      return;
+    }
+    const token = this.runToken;
+    this.runToken = '';
+    const result = await submitScore({ ...run, runToken: token });
     if (!result) {
-      this.setAuthStatus('成绩同步失败');
+      this.setAuthStatus('成绩同步失败或未通过校验');
       return;
     }
     this.user = {
       ...this.user,
       bestDistance: result.bestDistance,
-      bestScore: result.bestScore,
+      bestCombo: result.bestCombo,
       lastDistance: run.distance,
-      lastScore: run.score,
+      lastCombo: run.maxCombo,
       runCount: this.user.runCount + 1,
-      maxCombo: Math.max(this.user.maxCombo, run.maxCombo || 0),
     };
     this.renderPersonalBest();
-    if (result.improved.distance || result.improved.score) {
+    if (result.improved.distance || result.improved.combo) {
       this.setAuthStatus('新纪录已上榜！');
       void this.reloadLeaderboard();
     }
   }
 
   private bind(): void {
-    document.querySelector<HTMLAnchorElement>('#login-link')?.addEventListener('click', (e) => {
+    const stop = (e: Event) => {
       e.preventDefault();
+      e.stopPropagation();
+    };
+    document.querySelector('#login-link')?.addEventListener('click', (e) => {
+      stop(e);
       window.location.href = loginHref();
     });
-    document.querySelector<HTMLButtonElement>('#logout-button')?.addEventListener('click', () => {
+    document.querySelector('#logout-button')?.addEventListener('click', (e) => {
+      stop(e);
       void (async () => {
         await logout();
         this.user = null;
+        this.runToken = '';
         this.renderAuth();
         this.renderPersonalBest();
         this.setAuthStatus('已退出登录');
@@ -100,7 +126,7 @@ export class AccountPanel {
       el.textContent = '登录后同步最佳成绩';
       return;
     }
-    el.textContent = `最佳 ${this.user.bestDistance}m / ${this.user.bestScore}分 · ${this.user.runCount} 局`;
+    el.textContent = `最佳 ${this.user.bestDistance}m · 连击 ×${this.user.bestCombo} · ${this.user.runCount} 局`;
   }
 
   private renderBoard(selector: string, rows: LeaderRow[], unit: string): void {
@@ -113,7 +139,8 @@ export class AccountPanel {
     root.innerHTML = rows
       .map((r) => {
         const name = escapeHtml(r.username);
-        return `<li><span class="rank">${r.rank}</span><span class="name">${name}</span><span class="val">${r.value}${unit}</span></li>`;
+        const suffix = unit ? `${r.value}${unit}` : `×${r.value}`;
+        return `<li><span class="rank">${r.rank}</span><span class="name">${name}</span><span class="val">${suffix}</span></li>`;
       })
       .join('');
   }

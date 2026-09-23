@@ -8,7 +8,7 @@ declare global {
       setPausedForScreenshot: (paused: boolean) => void;
       setReducedMotion: (enabled: boolean) => void;
       hideDebugUi: (hidden: boolean) => void;
-      addPickups: (n: number) => { combo: number; streak: number; score: number };
+      addPickups: (n: number) => { combo: number; streak: number; maxCombo: number };
     };
     __THREE_GAME_DIAGNOSTICS__?: {
       frame: number;

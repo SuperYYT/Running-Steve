@@ -21,10 +21,6 @@
             <span>距离</span>
             <strong><span id="distance-value">0</span><small> m</small></strong>
           </div>
-          <div class="hud-metric">
-            <span>掉落物</span>
-            <strong id="fish-value">0</strong>
-          </div>
           <div class="hud-metric combo">
             <span>连击</span>
             <strong id="combo-value">×1</strong>
@@ -62,8 +58,8 @@
           <ol id="board-distance"></ol>
         </div>
         <div class="board">
-          <h3>掉落物榜</h3>
-          <ol id="board-score"></ol>
+          <h3>连击榜</h3>
+          <ol id="board-combo"></ol>
         </div>
       </section>
 
@@ -101,8 +97,8 @@
         <p id="fail-reason" class="reason">撞上了障碍</p>
         <div class="results">
           <div><span>距离</span><strong id="final-distance">0 m</strong></div>
-          <div><span>掉落物</span><strong id="final-fish">0</strong></div>
-          <div><span>最佳</span><strong id="final-best">0</strong></div>
+          <div><span>最高连击</span><strong id="final-combo">×1</strong></div>
+          <div><span>最佳距离</span><strong id="final-best">0</strong></div>
         </div>
         <div class="actions">
           <button class="primary" type="button" data-action="restart">再来一次</button>

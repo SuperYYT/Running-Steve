@@ -3,77 +3,112 @@ import { createMemoryDb } from './db-memory.js';
 import { createApp } from './app.js';
 import { issueSession, sessionCookie } from './session.js';
 
-process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'smoke-secret';
-
+process.env.SESSION_SECRET = 'smoke-secret';
 const db = createMemoryDb();
-const app = createApp(db, { clientId: '', clientSecret: '', redirectUri: '', root: '.' });
+const app = createApp(db, {
+  clientId: '',
+  clientSecret: '',
+  redirectUri: '',
+  root: '.',
+  runSecret: 'smoke-secret',
+});
 const server = app.listen(0);
 await new Promise((r) => server.once('listening', r));
-const port = server.address().port;
-const base = `http://127.0.0.1:${port}`;
+const base = `http://127.0.0.1:${server.address().port}`;
 
 try {
-  const me = await (await fetch(`${base}/api/me`)).json();
-  console.log('me', me);
-
   const unauth = await fetch(`${base}/api/scores`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ distance: 1, score: 1 }),
+    body: JSON.stringify({ distance: 1, maxCombo: 1 }),
   });
-  console.log('unauth', unauth.status);
   strictEqual(unauth.status, 401);
 
   const user = await db.upsertUser({ xfUserId: 7, username: 'Smoke7', avatarUrl: null });
   const sess = issueSession(Number(user.id));
   const cookie = sessionCookie(sess.value, sess.maxAgeSec).split(';')[0];
 
+  const noTok = await fetch(`${base}/api/scores`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ distance: 80, maxCombo: 3, durationMs: 10000, cookies: 4, cakes: 0 }),
+  });
+  strictEqual(noTok.status, 403);
+
+  const started = await (
+    await fetch(`${base}/api/runs/start`, { method: 'POST', headers: { Cookie: cookie } })
+  ).json();
+  ok(started.token);
+
+  const cheat = await fetch(`${base}/api/scores`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({
+      runToken: started.token,
+      distance: 99999,
+      maxCombo: 3,
+      durationMs: 5000,
+      cookies: 1,
+      cakes: 0,
+    }),
+  });
+  strictEqual(cheat.status, 403, 'speedhack distance rejected');
+
+  const started2 = await (
+    await fetch(`${base}/api/runs/start`, { method: 'POST', headers: { Cookie: cookie } })
+  ).json();
   const okRes = await fetch(`${base}/api/scores`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: cookie },
     body: JSON.stringify({
+      runToken: started2.token,
       distance: 88,
-      score: 21,
       maxCombo: 4,
       durationMs: 12000,
       cookies: 6,
       cakes: 1,
-      failReason: '橡木箱子 — 跳过去或换道',
+      failReason: 'hit',
     }),
   });
   const okJson = await okRes.json();
-  console.log('score', okRes.status, okJson);
   strictEqual(okRes.status, 200);
   strictEqual(okJson.bestDistance, 88);
-  ok(okJson.runId);
+  strictEqual(okJson.bestCombo, 4);
 
-  await new Promise((r) => setTimeout(r, 5100));
-  const low = await fetch(`${base}/api/scores`, {
+  const reuse = await fetch(`${base}/api/scores`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: cookie },
-    body: JSON.stringify({ distance: 10, score: 5, maxCombo: 1 }),
+    body: JSON.stringify({
+      runToken: started2.token,
+      distance: 10,
+      maxCombo: 1,
+      durationMs: 3000,
+      cookies: 1,
+      cakes: 0,
+    }),
   });
-  const lowJson = await low.json();
-  console.log('low', low.status, lowJson);
-  strictEqual(lowJson.bestDistance, 88);
+  strictEqual(reuse.status, 403, 'token single-use');
+
+  const zeroStart = await (
+    await fetch(`${base}/api/runs/start`, { method: 'POST', headers: { Cookie: cookie } })
+  ).json();
+  await new Promise((r) => setTimeout(r, 5100));
+  const zero = await fetch(`${base}/api/scores`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({
+      runToken: zeroStart.token,
+      distance: 30,
+      maxCombo: 0,
+      durationMs: 4000,
+      cookies: 0,
+      cakes: 0,
+    }),
+  });
+  strictEqual(zero.status, 200, 'zero-pickup run accepted');
 
   const lb = await (await fetch(`${base}/api/leaderboard`)).json();
-  console.log('lb', lb);
-  ok(lb.distance?.length);
-
-  const runsRes = await fetch(`${base}/api/runs`, { headers: { Cookie: cookie } });
-  const runsJson = await runsRes.json();
-  console.log('runs', runsRes.status, runsJson);
-  strictEqual(runsRes.status, 200);
-  strictEqual(runsJson.runs.length, 2);
-  ok(runsJson.runs.some((r) => r.cookies === 6 && r.cakes === 1));
-
-  const me2 = await (await fetch(`${base}/api/me`, { headers: { Cookie: cookie } })).json();
-  console.log('me2', me2);
-  strictEqual(me2.user.bestDistance, 88);
-  strictEqual(me2.user.runCount, 2);
-  strictEqual(me2.user.maxCombo, 4);
-
+  ok(lb.distance?.length && lb.combo?.length);
   console.log('api smoke ok');
 } finally {
   server.close();

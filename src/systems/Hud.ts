@@ -1,6 +1,5 @@
 export class Hud {
   private readonly distanceValue = this.getElement('#distance-value');
-  private readonly fishValue = this.getElement('#fish-value');
   private readonly comboValue = this.getElement('#combo-value');
   private readonly bestValue = this.getElement('#best-value');
   private readonly speedValue = this.getElement('#speed-value');
@@ -10,10 +9,15 @@ export class Hud {
   private readonly pausePanel = this.getElement('#pause-panel');
   private readonly failReason = this.getElement('#fail-reason');
   private readonly finalDistance = this.getElement('#final-distance');
-  private readonly finalFish = this.getElement('#final-fish');
+  private readonly finalCombo = this.getElement('#final-combo');
   private readonly finalBest = this.getElement('#final-best');
   private readonly scorePop = this.getElement('#score-pop');
   private readonly jackpotOverlay = this.getElement('#jackpot-overlay');
+
+  private setLeaderboardVisible(visible: boolean): void {
+    const el = document.querySelector<HTMLElement>('#leaderboard');
+    if (el) el.hidden = !visible;
+  }
 
   showTitle(best: number): void {
     this.bestValue.textContent = String(best);
@@ -21,6 +25,7 @@ export class Hud {
     this.gameoverPanel.hidden = true;
     this.pausePanel.hidden = true;
     this.statusLine.textContent = '准备出发';
+    this.setLeaderboardVisible(true);
   }
 
   showPlaying(): void {
@@ -28,34 +33,36 @@ export class Hud {
     this.gameoverPanel.hidden = true;
     this.pausePanel.hidden = true;
     this.statusLine.textContent = '全力奔跑';
+    this.setLeaderboardVisible(false);
   }
 
   showPaused(): void {
     this.pausePanel.hidden = false;
+    this.setLeaderboardVisible(false);
   }
 
-  showGameOver(distance: number, fish: number, best: number, reason: string): void {
+  showGameOver(distance: number, maxCombo: number, best: number, reason: string): void {
     this.gameoverPanel.hidden = false;
     this.pausePanel.hidden = true;
     this.titlePanel.hidden = true;
     this.failReason.textContent = reason;
     this.finalDistance.textContent = `${Math.floor(distance)} m`;
-    this.finalFish.textContent = String(fish);
+    this.finalCombo.textContent = `×${Math.max(1, maxCombo)}`;
     this.finalBest.textContent = String(best);
     this.statusLine.textContent = '被击中了';
+    this.setLeaderboardVisible(false);
   }
 
-  update(distance: number, fish: number, combo: number, best: number, speed: number): void {
+  update(distance: number, combo: number, best: number, speed: number): void {
     this.distanceValue.textContent = String(Math.floor(distance));
-    this.fishValue.textContent = String(fish);
     this.comboValue.textContent = `×${Math.max(1, combo)}`;
     this.bestValue.textContent = String(best);
     this.speedValue.textContent = speed.toFixed(1);
   }
 
   flashPickup(): void {
-    this.fishValue.animate(
-      [{ transform: 'scale(1.25)', color: '#f5ba49' }, { transform: 'scale(1)', color: '' }],
+    this.comboValue.animate(
+      [{ transform: 'scale(1.2)', color: '#f5ba49' }, { transform: 'scale(1)', color: '' }],
       { duration: 160, easing: 'ease-out' },
     );
     this.statusLine.animate(
@@ -68,9 +75,9 @@ export class Hud {
     );
   }
 
-  flashScorePop(gained: number): void {
+  flashScorePop(combo: number): void {
     const el = this.scorePop;
-    el.textContent = `+${gained}`;
+    el.textContent = `连击 ×${combo}`;
     el.dataset.tier = 'cookie';
     el.animate(
       [
@@ -82,10 +89,10 @@ export class Hud {
     );
   }
 
-  flashJackpot(gained: number): void {
+  flashJackpot(combo: number): void {
     const pop = this.scorePop;
     pop.dataset.tier = 'cake';
-    pop.textContent = `蛋糕 +${gained}`;
+    pop.textContent = `蛋糕 · 连击 ×${combo}`;
     pop.animate(
       [
         { opacity: 0, transform: 'translate(-50%, 10px) scale(0.8)' },
@@ -94,30 +101,25 @@ export class Hud {
       ],
       { duration: 720, easing: 'ease-out' },
     );
-
-    this.jackpotOverlay.animate(
-      [
-        { opacity: 0 },
-        { opacity: 1, offset: 0.15 },
-        { opacity: 0 },
-      ],
-      { duration: 560, easing: 'ease-out' },
-    );
+    this.jackpotOverlay.animate([{ opacity: 0 }, { opacity: 1, offset: 0.15 }, { opacity: 0 }], {
+      duration: 560,
+      easing: 'ease-out',
+    });
   }
 
   flashCombo(combo: number): void {
-    this.comboValue.animate(
-      [{ transform: 'scale(1.4)' }, { transform: 'scale(1)' }],
-      { duration: 180, easing: 'ease-out' },
-    );
-    this.statusLine.textContent = combo >= 3 ? `连击 ×${combo}!` : `连击 ×${combo}`;
+    this.comboValue.animate([{ transform: 'scale(1.4)' }, { transform: 'scale(1)' }], {
+      duration: 180,
+      easing: 'ease-out',
+    });
+    this.statusLine.textContent = `连击 ×${combo}!`;
   }
 
   flashCrash(): void {
-    this.statusLine.animate(
-      [{ opacity: 1 }, { opacity: 0.3 }, { opacity: 1 }],
-      { duration: 320, easing: 'ease-in-out' },
-    );
+    this.statusLine.animate([{ opacity: 1 }, { opacity: 0.3 }, { opacity: 1 }], {
+      duration: 320,
+      easing: 'ease-in-out',
+    });
   }
 
   private getElement(selector: string): HTMLElement {

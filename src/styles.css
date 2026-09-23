@@ -92,11 +92,11 @@ body {
 
 #account-bar {
   position: absolute;
-  top: max(12px, env(safe-area-inset-top));
-  right: max(72px, env(safe-area-inset-right));
+  top: calc(max(12px, env(safe-area-inset-top)) + 56px);
+  right: max(12px, env(safe-area-inset-right));
   z-index: 4;
-  min-width: 180px;
-  max-width: min(240px, 42vw);
+  min-width: 200px;
+  max-width: min(260px, 46vw);
   padding: 10px 12px;
   border-radius: 12px;
   border: 1px solid rgba(247, 239, 216, 0.28);
@@ -117,6 +117,11 @@ body {
 #auth-status {
   color: var(--gold) !important;
   min-height: 1em;
+}
+
+#auth-guest[hidden],
+#auth-user[hidden] {
+  display: none !important;
 }
 
 #auth-user {
@@ -151,6 +156,10 @@ body {
   background: var(--coral);
   border-color: transparent;
   color: #fff8ef;
+}
+
+#leaderboard[hidden] {
+  display: none !important;
 }
 
 #leaderboard {
@@ -231,8 +240,9 @@ body {
 @media (pointer: coarse), (max-width: 760px) {
   #account-bar {
     right: max(12px, env(safe-area-inset-right));
-    top: calc(max(12px, env(safe-area-inset-top)) + 52px);
-    max-width: 46vw;
+    top: auto;
+    bottom: calc(max(14px, env(safe-area-inset-bottom)) + 88px);
+    max-width: min(220px, 52vw);
   }
 
   #leaderboard {

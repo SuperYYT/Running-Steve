@@ -35,6 +35,7 @@ export class InputController {
   private homeBuffer = 0;
   private readonly pointerState: PointerState = { active: false, id: null };
   private readonly swipe: SwipeState = { active: false, id: null, x: 0, y: 0 };
+  private swipeBlocked = false;
   private readonly heldActions = new Set<string>();
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
@@ -55,7 +56,10 @@ export class InputController {
       this.duckBuffer = 0.15;
       event.preventDefault();
     }
-    if (event.code === 'Enter' || event.code === 'Space') this.startBuffer = 0.2;
+    if (event.code === 'Enter' || event.code === 'Space') {
+      const tag = (event.target as HTMLElement | null)?.tagName;
+      if (tag !== 'BUTTON' && tag !== 'A') this.startBuffer = 0.2;
+    }
     if (event.code === 'Escape') this.pauseBuffer = 0.2;
     if (event.code === 'KeyR') this.restartBuffer = 0.2;
   };
@@ -69,6 +73,7 @@ export class InputController {
     const action = target?.dataset.action;
     if (!action || !target) return;
     event.preventDefault();
+    event.stopPropagation();
     this.pointerState.active = true;
     this.pointerState.id = event.pointerId;
     this.heldActions.add(action);
@@ -101,11 +106,17 @@ export class InputController {
   private readonly isUiSurface = (target: EventTarget | null): boolean => {
     const el = target as HTMLElement | null;
     if (!el?.closest) return false;
-    return Boolean(el.closest('[data-action], .panel, #hud'));
+    return Boolean(
+      el.closest('[data-action], .panel, #hud, #account-bar, #leaderboard, #touch-controls, button, a'),
+    );
   };
 
   private readonly onSurfacePointerDown = (event: PointerEvent) => {
-    if (this.isUiSurface(event.target)) return;
+    if (this.isUiSurface(event.target)) {
+      this.swipeBlocked = true;
+      return;
+    }
+    this.swipeBlocked = false;
     this.swipe.active = true;
     this.swipe.id = event.pointerId;
     this.swipe.x = event.clientX;
@@ -122,10 +133,12 @@ export class InputController {
     const absX = Math.abs(dx);
     const absY = Math.abs(dy);
 
+    // Tap on empty stage only — never when gesture began on chrome UI
     if (absX < SWIPE_THRESHOLD && absY < SWIPE_THRESHOLD) {
-      this.startBuffer = 0.2;
+      if (!this.swipeBlocked) this.startBuffer = 0.2;
       return;
     }
+    this.swipeBlocked = false;
 
     if (absX >= absY) {
       if (dx < 0) this.leftBuffer = 0.18;

@@ -1,6 +1,7 @@
+import { rankRows } from './db-shape.js';
+
 /**
  * In-process driver for tests / local dev without MySQL.
- * Same surface as db-mysql.js.
  */
 export function createMemoryDb() {
   let nextUser = 1;
@@ -23,11 +24,10 @@ export function createMemoryDb() {
       username,
       avatar_url: avatarUrl ?? null,
       best_distance: 0,
-      best_score: 0,
+      best_combo: 0,
       last_distance: 0,
-      last_score: 0,
+      last_combo: 0,
       run_count: 0,
-      max_combo: 0,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -49,59 +49,55 @@ export function createMemoryDb() {
 
   function insertRun(userId, payload) {
     const id = nextRun++;
-    const row = {
+    runs.push({
       id,
       user_id: userId,
       distance: payload.distance,
-      score: payload.score,
       max_combo: payload.maxCombo ?? 0,
       duration_ms: payload.durationMs ?? 0,
       cookies: payload.cookies ?? 0,
       cakes: payload.cakes ?? 0,
       fail_reason: payload.failReason ?? null,
       created_at: new Date().toISOString(),
-    };
-    runs.push(row);
+    });
     return id;
   }
 
   function mergeBest(userId, payload) {
     const u = users.get(userId);
     if (!u) return null;
-    const distance = payload.distance;
-    const score = payload.score;
+    const combo = payload.maxCombo ?? 0;
     const improved = {
-      distance: distance > u.best_distance,
-      score: score > u.best_score,
+      distance: payload.distance > u.best_distance,
+      combo: combo > u.best_combo,
     };
-    if (improved.distance) u.best_distance = distance;
-    if (improved.score) u.best_score = score;
-    if (improved.distance || improved.score) u.updated_at = new Date().toISOString();
-    u.last_distance = distance;
-    u.last_score = score;
+    if (improved.distance || improved.combo) u.updated_at = new Date().toISOString();
+    if (improved.distance) u.best_distance = payload.distance;
+    if (improved.combo) u.best_combo = combo;
+    u.last_distance = payload.distance;
+    u.last_combo = combo;
     u.run_count += 1;
-    u.max_combo = Math.max(u.max_combo, payload.maxCombo ?? 0);
     const runId = insertRun(userId, payload);
     return {
       runId,
       bestDistance: u.best_distance,
-      bestScore: u.best_score,
+      bestCombo: u.best_combo,
       improved,
     };
   }
 
   function topBy(column, limit = 50) {
-    const key = column === 'score' ? 'best_score' : 'best_distance';
+    const key = column === 'combo' ? 'best_combo' : 'best_distance';
     const rows = [...users.values()]
       .filter((u) => u[key] > 0)
       .sort((a, b) => b[key] - a[key] || a.updated_at.localeCompare(b.updated_at))
-      .slice(0, limit);
-    return rows.map((r, i) => ({
-      rank: i + 1,
-      username: r.username,
-      avatarUrl: r.avatar_url ?? null,
-      value: r[key],
-    }));
+      .slice(0, limit)
+      .map((u) => ({
+        username: u.username,
+        avatar_url: u.avatar_url,
+        value: u[key],
+      }));
+    return rankRows(rows);
   }
 
   function listRuns(userId, limit = 20) {

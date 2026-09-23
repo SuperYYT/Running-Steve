@@ -10,16 +10,15 @@ export type SessionUser = {
   username: string;
   avatarUrl: string | null;
   bestDistance: number;
-  bestScore: number;
+  bestCombo: number;
   lastDistance: number;
-  lastScore: number;
+  lastCombo: number;
   runCount: number;
-  maxCombo: number;
 };
 
 export type RunSummary = {
+  runToken: string;
   distance: number;
-  score: number;
   maxCombo: number;
   durationMs: number;
   cookies: number;
@@ -46,10 +45,23 @@ export async function logout(): Promise<void> {
   }
 }
 
+export async function startRun(): Promise<{ runId: number; token: string } | null> {
+  try {
+    const res = await fetch('/api/runs/start', {
+      method: 'POST',
+      credentials: 'same-origin',
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as { runId: number; token: string };
+  } catch {
+    return null;
+  }
+}
+
 export async function submitScore(run: RunSummary): Promise<{
   bestDistance: number;
-  bestScore: number;
-  improved: { distance: boolean; score: boolean };
+  bestCombo: number;
+  improved: { distance: boolean; combo: boolean };
   runId: number;
 } | null> {
   try {
@@ -62,8 +74,8 @@ export async function submitScore(run: RunSummary): Promise<{
     if (!res.ok) return null;
     return (await res.json()) as {
       bestDistance: number;
-      bestScore: number;
-      improved: { distance: boolean; score: boolean };
+      bestCombo: number;
+      improved: { distance: boolean; combo: boolean };
       runId: number;
     };
   } catch {
@@ -73,12 +85,12 @@ export async function submitScore(run: RunSummary): Promise<{
 
 export async function fetchLeaderboard(): Promise<{
   distance: LeaderRow[];
-  score: LeaderRow[];
+  combo: LeaderRow[];
 } | null> {
   try {
     const res = await fetch('/api/leaderboard?limit=10', { credentials: 'same-origin' });
     if (!res.ok) return null;
-    return (await res.json()) as { distance: LeaderRow[]; score: LeaderRow[] };
+    return (await res.json()) as { distance: LeaderRow[]; combo: LeaderRow[] };
   } catch {
     return null;
   }

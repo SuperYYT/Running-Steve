@@ -1,7 +1,7 @@
 import express from 'express';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
 import { toPublicUser } from './db.js';
 import { buildAuthorizeUrl, exchangeCode, fetchMe } from './oauth.js';
 import {
@@ -12,11 +12,15 @@ import {
 } from './session.js';
 
 const MAX_DISTANCE = 1_000_000;
-const MAX_SCORE = 10_000_000;
 const MAX_COMBO = 9999;
-const MAX_DURATION_MS = 6 * 60 * 60 * 1000;
+const MAX_DURATION_MS = 2 * 60 * 60 * 1000;
 const MAX_PICKUPS = 100_000;
 const SCORE_COOLDOWN_MS = 5_000;
+const RUN_TTL_MS = 30 * 60 * 1000;
+// Anti-cheat ceilings: generous vs real play, tight vs trainers
+const MAX_SPEED = 22;
+const MAX_PICKUPS_PER_SEC = 8;
+const MAX_COMBO_PER_SEC = 6;
 
 export function createApp(db, options = {}) {
   const {
@@ -24,6 +28,7 @@ export function createApp(db, options = {}) {
     clientSecret = process.env.MINEBBS_CLIENT_SECRET || '',
     redirectUri = '',
     root = join(import.meta.dirname, '..'),
+    runSecret = process.env.SESSION_SECRET || 'dev-session-secret-change-me',
   } = options;
 
   const app = express();
@@ -31,6 +36,8 @@ export function createApp(db, options = {}) {
 
   const oauthStates = new Map();
   const scoreStamps = new Map();
+  /** token -> { userId, runId, exp, used } */
+  const runTokens = new Map();
 
   function getCookie(req, name) {
     const header = req.headers.cookie || '';
@@ -50,9 +57,9 @@ export function createApp(db, options = {}) {
       : '/';
   }
 
-  function intField(value, { min = 0, max, fallback = 0 } = {}) {
+  function intField(value, { min = 0, max } = {}) {
     const n = Math.floor(Number(value));
-    if (!Number.isFinite(n) || n < min) return fallback;
+    if (!Number.isFinite(n) || n < min) return null;
     if (max != null && n > max) return null;
     return n;
   }
@@ -61,6 +68,51 @@ export function createApp(db, options = {}) {
     const sid = parseSession(getCookie(req, 'rs_session'));
     if (!sid) return null;
     return db.getUserById(sid);
+  }
+
+  function signRun(userId, runId, exp) {
+    return createHmac('sha256', runSecret).update(`${userId}.${runId}.${exp}`).digest('base64url');
+  }
+
+  function issueRunToken(userId, runId) {
+    const exp = Date.now() + RUN_TTL_MS;
+    const sig = signRun(userId, runId, exp);
+    const token = `${userId}.${runId}.${exp}.${sig}`;
+    runTokens.set(token, { userId, runId, exp, used: false });
+    // opportunistic GC
+    if (runTokens.size > 5000) {
+      for (const [k, v] of runTokens) {
+        if (v.used || v.exp < Date.now()) runTokens.delete(k);
+      }
+    }
+    return token;
+  }
+
+  function consumeRunToken(token, userId) {
+    const entry = runTokens.get(token);
+    if (!entry || entry.used || entry.exp < Date.now()) return null;
+    const parts = String(token).split('.');
+    if (parts.length !== 4) return null;
+    const [uid, rid, exp, sig] = parts;
+    const expected = signRun(Number(uid), Number(rid), Number(exp));
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+    if (Number(uid) !== Number(userId)) return null;
+    entry.used = true;
+    runTokens.delete(token);
+    return entry;
+  }
+
+  function plausible({ distance, maxCombo, durationMs, cookies, cakes }) {
+    const sec = durationMs / 1000;
+    if (durationMs < 2000 || durationMs > MAX_DURATION_MS) return false;
+    if (distance > MAX_SPEED * sec * 1.25 + 40) return false;
+    if (maxCombo > 12 + sec * MAX_COMBO_PER_SEC) return false;
+    if (cookies + cakes > 8 + sec * MAX_PICKUPS_PER_SEC) return false;
+    // combo is consecutive pickups; allow 0-pickup runs (maxCombo 0/1)
+    if (maxCombo > cookies + cakes) return false;
+    return true;
   }
 
   app.get('/api/me', async (req, res) => {
@@ -79,9 +131,7 @@ export function createApp(db, options = {}) {
     for (const [k, v] of oauthStates) {
       if (v.exp < Date.now()) oauthStates.delete(k);
     }
-    res.redirect(
-      buildAuthorizeUrl({ clientId, redirectUri, state }),
-    );
+    res.redirect(buildAuthorizeUrl({ clientId, redirectUri, state }));
   });
 
   app.get('/auth/callback', async (req, res) => {
@@ -95,12 +145,7 @@ export function createApp(db, options = {}) {
       return;
     }
     try {
-      const token = await exchangeCode({
-        clientId,
-        clientSecret,
-        code,
-        redirectUri,
-      });
+      const token = await exchangeCode({ clientId, clientSecret, code, redirectUri });
       const profile = await fetchMe(token.access_token);
       const user = await db.upsertUser(profile);
       const session = issueSession(Number(user.id));
@@ -117,6 +162,17 @@ export function createApp(db, options = {}) {
     res.json({ ok: true });
   });
 
+  app.post('/api/runs/start', async (req, res) => {
+    const user = await requireUser(req);
+    if (!user) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+    const runId = Date.now();
+    const token = issueRunToken(Number(user.id), runId);
+    res.json({ runId, token });
+  });
+
   app.post('/api/scores', async (req, res) => {
     const user = await requireUser(req);
     if (!user) {
@@ -124,17 +180,28 @@ export function createApp(db, options = {}) {
       return;
     }
     const distance = intField(req.body?.distance, { max: MAX_DISTANCE });
-    const score = intField(req.body?.score, { max: MAX_SCORE });
-    if (distance == null || score == null) {
-      res.status(400).json({ error: 'invalid_score' });
-      return;
-    }
     const maxCombo = intField(req.body?.maxCombo, { max: MAX_COMBO });
     const durationMs = intField(req.body?.durationMs, { max: MAX_DURATION_MS });
     const cookies = intField(req.body?.cookies, { max: MAX_PICKUPS });
     const cakes = intField(req.body?.cakes, { max: MAX_PICKUPS });
-    if (maxCombo == null || durationMs == null || cookies == null || cakes == null) {
+    if (
+      distance == null ||
+      maxCombo == null ||
+      durationMs == null ||
+      cookies == null ||
+      cakes == null
+    ) {
       res.status(400).json({ error: 'invalid_score' });
+      return;
+    }
+    const runToken = typeof req.body?.runToken === 'string' ? req.body.runToken : '';
+    const entry = consumeRunToken(runToken, user.id);
+    if (!entry) {
+      res.status(403).json({ error: 'invalid_run_token' });
+      return;
+    }
+    if (!plausible({ distance, maxCombo, durationMs, cookies, cakes })) {
+      res.status(403).json({ error: 'implausible_run' });
       return;
     }
     const failReason =
@@ -151,7 +218,6 @@ export function createApp(db, options = {}) {
 
     const result = await db.mergeBest(Number(user.id), {
       distance,
-      score,
       maxCombo,
       durationMs,
       cookies,
@@ -164,11 +230,11 @@ export function createApp(db, options = {}) {
   app.get('/api/leaderboard', async (req, res) => {
     const raw = Number(req.query.limit);
     const limit = Number.isFinite(raw) ? Math.min(50, Math.max(1, Math.floor(raw))) : 50;
-    const [distance, score] = await Promise.all([
+    const [distance, combo] = await Promise.all([
       db.topBy('distance', limit),
-      db.topBy('score', limit),
+      db.topBy('combo', limit),
     ]);
-    res.json({ distance, score });
+    res.json({ distance, combo });
   });
 
   app.get('/api/runs', async (req, res) => {
@@ -182,7 +248,6 @@ export function createApp(db, options = {}) {
       runs: rows.map((r) => ({
         id: Number(r.id),
         distance: Number(r.distance),
-        score: Number(r.score),
         maxCombo: Number(r.max_combo ?? 0),
         durationMs: Number(r.duration_ms ?? 0),
         cookies: Number(r.cookies ?? 0),

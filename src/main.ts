@@ -11,6 +11,9 @@ if (!canvas) {
 
 const account = new AccountPanel();
 const game = new Game(canvas, {
+  onRunStart: () => {
+    void account.beginRunToken();
+  },
   onRunEnd: (run) => {
     void account.submitRun(run);
   },
