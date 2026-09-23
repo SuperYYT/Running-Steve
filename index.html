@@ -7,8 +7,6 @@
     <link rel="icon" type="image/png" href="./favicon.png" />
     <link rel="apple-touch-icon" href="./favicon.png" />
     <title>史蒂夫快跑 Running Steve</title>
-    <script type="module" crossorigin src="./assets/index-BugWExL5.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-bVdfvyWQ.css">
   </head>
   <body>
     <main id="app">
@@ -44,6 +42,29 @@
           <button id="pause-button" type="button" data-action="pause" aria-label="暂停">⏸</button>
         </div>
         <div id="status-line">准备出发</div>
+      </section>
+
+      <aside id="account-bar">
+        <div id="auth-guest">
+          <a id="login-link" class="auth-btn" href="/auth/login?returnTo=/">登录 MineBBS</a>
+        </div>
+        <div id="auth-user" hidden>
+          <span id="auth-username"></span>
+          <button id="logout-button" type="button">退出</button>
+        </div>
+        <p id="auth-best">登录后同步最佳成绩</p>
+        <p id="auth-status"></p>
+      </aside>
+
+      <section id="leaderboard" data-state="loading">
+        <div class="board">
+          <h3>距离榜</h3>
+          <ol id="board-distance"></ol>
+        </div>
+        <div class="board">
+          <h3>掉落物榜</h3>
+          <ol id="board-score"></ol>
+        </div>
       </section>
 
       <section id="title-panel" class="panel">
@@ -100,5 +121,6 @@
         </div>
       </div>
     </main>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
