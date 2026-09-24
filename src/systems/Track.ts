@@ -67,6 +67,17 @@ export class Track {
     // dashes stay put for reduced-motion screenshots
   }
 
+  setNight(night: boolean): void {
+    for (const decor of this.decorPool) {
+      const dayFlame = decor.userData.dayFlame as THREE.Object3D | undefined;
+      const nightLamp = decor.userData.nightLamp as THREE.Object3D | undefined;
+      const nightArm = decor.userData.nightArm as THREE.Object3D | undefined;
+      if (dayFlame) dayFlame.visible = !night;
+      if (nightLamp) nightLamp.visible = night;
+      if (nightArm) nightArm.visible = night;
+    }
+  }
+
   dispose(): void {
     for (const geo of this.geometries) geo.dispose();
     for (const mat of this.materials) mat.dispose();
@@ -146,19 +157,33 @@ export class Track {
         g.add(cube);
       }
     } else if (kind === 1) {
-      // Campfire / torch post
+      // Day: campfire torch · Night: street lamp
       const log = this.mesh(new THREE.BoxGeometry(0.7, 0.25, 0.7), this.mat('#6b4f2a', 0.9, 0));
       log.position.y = 0.12;
       g.add(log);
-      const flame = this.mesh(
-        new THREE.BoxGeometry(0.35, 0.35, 0.35),
-        this.mat('#ff9a00', 0.5, 0, '#ff6a00', 0.8),
-      );
-      flame.position.y = 0.4;
-      g.add(flame);
       const stick = this.mesh(new THREE.BoxGeometry(0.1, 1.4, 0.1), this.mat('#6b4f2a', 0.9, 0));
       stick.position.y = 0.7;
       g.add(stick);
+      const dayFlame = this.mesh(
+        new THREE.BoxGeometry(0.35, 0.35, 0.35),
+        this.mat('#ff9a00', 0.5, 0, '#ff6a00', 0.8),
+      );
+      dayFlame.position.y = 0.4;
+      g.add(dayFlame);
+      const lamp = this.mesh(
+        new THREE.BoxGeometry(0.45, 0.35, 0.45),
+        this.mat('#ffe9a0', 0.4, 0.05, '#ffcc55', 1.2),
+      );
+      lamp.position.set(0, 1.55, 0);
+      lamp.visible = false;
+      g.add(lamp);
+      const lampArm = this.mesh(new THREE.BoxGeometry(0.08, 0.5, 0.08), this.mat('#5a5a5a', 0.7, 0.1));
+      lampArm.position.set(0, 1.25, 0);
+      lampArm.visible = false;
+      g.add(lampArm);
+      g.userData.dayFlame = dayFlame;
+      g.userData.nightLamp = lamp;
+      g.userData.nightArm = lampArm;
     } else {
       // Beacon tower (stone bricks + glowing core)
       const tower = this.mesh(new THREE.BoxGeometry(1.2, 4.2, 1.2), this.mat('#7a7a7a', 0.8, 0.05));

@@ -59,11 +59,12 @@ export async function startRun(): Promise<{ runId: number; token: string } | nul
 }
 
 export async function submitScore(run: RunSummary): Promise<{
+  ok: true;
   bestDistance: number;
   bestCombo: number;
   improved: { distance: boolean; combo: boolean };
   runId: number;
-} | null> {
+} | { ok: false; error: string } | null> {
   try {
     const res = await fetch('/api/scores', {
       method: 'POST',
@@ -71,12 +72,20 @@ export async function submitScore(run: RunSummary): Promise<{
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(run),
     });
-    if (!res.ok) return null;
-    return (await res.json()) as {
-      bestDistance: number;
-      bestCombo: number;
-      improved: { distance: boolean; combo: boolean };
-      runId: number;
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      const error = typeof json.error === 'string' ? json.error : `http_${res.status}`;
+      return { ok: false, error };
+    }
+    return {
+      ok: true,
+      bestDistance: Number(json.bestDistance),
+      bestCombo: Number(json.bestCombo),
+      improved: (json.improved as { distance: boolean; combo: boolean }) ?? {
+        distance: false,
+        combo: false,
+      },
+      runId: Number(json.runId),
     };
   } catch {
     return null;
@@ -86,11 +95,16 @@ export async function submitScore(run: RunSummary): Promise<{
 export async function fetchLeaderboard(): Promise<{
   distance: LeaderRow[];
   combo: LeaderRow[];
+  runs: LeaderRow[];
 } | null> {
   try {
     const res = await fetch('/api/leaderboard?limit=10', { credentials: 'same-origin' });
     if (!res.ok) return null;
-    return (await res.json()) as { distance: LeaderRow[]; combo: LeaderRow[] };
+    return (await res.json()) as {
+      distance: LeaderRow[];
+      combo: LeaderRow[];
+      runs: LeaderRow[];
+    };
   } catch {
     return null;
   }

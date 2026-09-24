@@ -75,12 +75,14 @@ export async function createMysqlDb(url) {
   }
 
   async function insertRun(conn, userId, payload) {
+    // score kept for older schemas that still require the column
     const [result] = await conn.query(
-      `INSERT INTO runs (user_id, distance, max_combo, duration_ms, cookies, cakes, fail_reason)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO runs (user_id, distance, score, max_combo, duration_ms, cookies, cakes, fail_reason)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
         payload.distance,
+        0,
         payload.maxCombo ?? 0,
         payload.durationMs ?? 0,
         payload.cookies ?? 0,
@@ -147,7 +149,8 @@ export async function createMysqlDb(url) {
   }
 
   async function topBy(column, limit = 50) {
-    const col = column === 'combo' ? 'best_combo' : 'best_distance';
+    const col =
+      column === 'combo' ? 'best_combo' : column === 'runs' ? 'run_count' : 'best_distance';
     const [rows] = await pool.query(
       `SELECT username, avatar_url, ${col} AS value
        FROM users

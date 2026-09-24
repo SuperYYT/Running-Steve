@@ -87,7 +87,8 @@ export function createMemoryDb() {
   }
 
   function topBy(column, limit = 50) {
-    const key = column === 'combo' ? 'best_combo' : 'best_distance';
+    const key =
+      column === 'combo' ? 'best_combo' : column === 'runs' ? 'run_count' : 'best_distance';
     const rows = [...users.values()]
       .filter((u) => u[key] > 0)
       .sort((a, b) => b[key] - a[key] || a.updated_at.localeCompare(b.updated_at))

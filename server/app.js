@@ -15,12 +15,12 @@ const MAX_DISTANCE = 1_000_000;
 const MAX_COMBO = 9999;
 const MAX_DURATION_MS = 2 * 60 * 60 * 1000;
 const MAX_PICKUPS = 100_000;
-const SCORE_COOLDOWN_MS = 5_000;
+const SCORE_COOLDOWN_MS = 2_500;
 const RUN_TTL_MS = 30 * 60 * 1000;
-// Anti-cheat ceilings: generous vs real play, tight vs trainers
+// Anti-cheat ceilings: generous vs real play (incl. long combo lines)
 const MAX_SPEED = 22;
-const MAX_PICKUPS_PER_SEC = 8;
-const MAX_COMBO_PER_SEC = 6;
+const MAX_PICKUPS_PER_SEC = 12;
+const MAX_COMBO_PER_SEC = 10;
 
 export function createApp(db, options = {}) {
   const {
@@ -88,7 +88,7 @@ export function createApp(db, options = {}) {
     return token;
   }
 
-  function consumeRunToken(token, userId) {
+  function peekRunToken(token, userId) {
     const entry = runTokens.get(token);
     if (!entry || entry.used || entry.exp < Date.now()) return null;
     const parts = String(token).split('.');
@@ -99,6 +99,12 @@ export function createApp(db, options = {}) {
     const b = Buffer.from(expected);
     if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
     if (Number(uid) !== Number(userId)) return null;
+    return entry;
+  }
+
+  function consumeRunToken(token, userId) {
+    const entry = peekRunToken(token, userId);
+    if (!entry) return null;
     entry.used = true;
     runTokens.delete(token);
     return entry;
@@ -106,12 +112,13 @@ export function createApp(db, options = {}) {
 
   function plausible({ distance, maxCombo, durationMs, cookies, cakes }) {
     const sec = durationMs / 1000;
-    if (durationMs < 2000 || durationMs > MAX_DURATION_MS) return false;
-    if (distance > MAX_SPEED * sec * 1.25 + 40) return false;
-    if (maxCombo > 12 + sec * MAX_COMBO_PER_SEC) return false;
-    if (cookies + cakes > 8 + sec * MAX_PICKUPS_PER_SEC) return false;
-    // combo is consecutive pickups; allow 0-pickup runs (maxCombo 0/1)
-    if (maxCombo > cookies + cakes) return false;
+    if (durationMs < 800 || durationMs > MAX_DURATION_MS) return false;
+    // speedhack / teleports
+    if (distance > MAX_SPEED * sec * 1.6 + 80) return false;
+    if (maxCombo > 20 + sec * MAX_COMBO_PER_SEC) return false;
+    if (cookies + cakes > 15 + sec * MAX_PICKUPS_PER_SEC) return false;
+    // combo can jump +5 on cake; allow cookies + 5*cakes
+    if (maxCombo > cookies + cakes * 5 + 2) return false;
     return true;
   }
 
@@ -195,12 +202,12 @@ export function createApp(db, options = {}) {
       return;
     }
     const runToken = typeof req.body?.runToken === 'string' ? req.body.runToken : '';
-    const entry = consumeRunToken(runToken, user.id);
-    if (!entry) {
+    if (!peekRunToken(runToken, user.id)) {
       res.status(403).json({ error: 'invalid_run_token' });
       return;
     }
     if (!plausible({ distance, maxCombo, durationMs, cookies, cakes })) {
+      // do not burn the token — allow a corrected resubmit
       res.status(403).json({ error: 'implausible_run' });
       return;
     }
@@ -215,6 +222,7 @@ export function createApp(db, options = {}) {
       return;
     }
     scoreStamps.set(key, now);
+    consumeRunToken(runToken, user.id);
 
     const result = await db.mergeBest(Number(user.id), {
       distance,
@@ -230,11 +238,12 @@ export function createApp(db, options = {}) {
   app.get('/api/leaderboard', async (req, res) => {
     const raw = Number(req.query.limit);
     const limit = Number.isFinite(raw) ? Math.min(50, Math.max(1, Math.floor(raw))) : 50;
-    const [distance, combo] = await Promise.all([
+    const [distance, combo, runs] = await Promise.all([
       db.topBy('distance', limit),
       db.topBy('combo', limit),
+      db.topBy('runs', limit),
     ]);
-    res.json({ distance, combo });
+    res.json({ distance, combo, runs });
   });
 
   app.get('/api/runs', async (req, res) => {

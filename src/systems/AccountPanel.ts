@@ -42,6 +42,7 @@ export class AccountPanel {
     board.dataset.state = 'ready';
     this.renderBoard('#board-distance', data.distance, 'm');
     this.renderBoard('#board-combo', data.combo, '');
+    this.renderBoard('#board-runs', data.runs, '局');
   }
 
   async beginRunToken(): Promise<void> {
@@ -57,16 +58,36 @@ export class AccountPanel {
       return;
     }
     if (!this.runToken) {
-      this.setAuthStatus('本局未登记，成绩未上传');
+      // token may still be in flight from onRunStart
+      await this.beginRunToken();
+    }
+    if (!this.runToken) {
+      this.setAuthStatus('成绩登记失败，请重试');
       return;
     }
     const token = this.runToken;
-    this.runToken = '';
     const result = await submitScore({ ...run, runToken: token });
     if (!result) {
-      this.setAuthStatus('成绩同步失败或未通过校验');
+      this.setAuthStatus('网络异常，成绩未同步');
       return;
     }
+    if (!result.ok) {
+      if (result.error === 'too_many_requests') {
+        this.setAuthStatus('提交过快，稍后再试');
+        return;
+      }
+      if (result.error === 'implausible_run') {
+        this.setAuthStatus('成绩未通过校验');
+        return;
+      }
+      if (result.error === 'invalid_run_token') {
+        this.setAuthStatus('本局已结束或未登记');
+        return;
+      }
+      this.setAuthStatus('成绩同步失败');
+      return;
+    }
+    this.runToken = '';
     this.user = {
       ...this.user,
       bestDistance: result.bestDistance,

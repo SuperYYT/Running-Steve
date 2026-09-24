@@ -25,6 +25,7 @@ const JUMP_V = 10.5;
 const GROUND_Y = 0;
 const DUCK_DURATION = 0.55;
 const FISH_HALF = new THREE.Vector3(0.35, 0.3, 0.35);
+const DAY_NIGHT_SEGMENT = 1000;
 
 export type GameHooks = {
   onRunEnd?: (run: {
@@ -68,7 +69,7 @@ export class Game {
     cameraLag: 0.22,
     exposure: 1.08,
     maxDpr: 2,
-    laneCooldown: 0.12,
+    laneCooldown: 0.08,
   };
 
   private frame = 0;
@@ -92,6 +93,7 @@ export class Game {
   private ducking = false;
   private duckAmount = 0;
   private duckTimer = 0;
+  private pendingDuck = false;
   private lean = 0;
   private speed = 0;
   private nextSpawnZ = -34;
@@ -99,6 +101,12 @@ export class Game {
   private rng = createSeededRandom(1);
   private pausedForScreenshot = false;
   private reducedMotion = false;
+  private night = false;
+  private hemiLight: THREE.HemisphereLight | null = null;
+  private sunLight: THREE.DirectionalLight | null = null;
+  private skyBillboard: THREE.Mesh | null = null;
+  private skySun: THREE.Texture | null = null;
+  private skyMoon: THREE.Texture | null = null;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -192,6 +200,7 @@ export class Game {
         this.tuning.baseSpeed + this.distance * this.tuning.speedRampPerMeter,
       );
       this.distance += this.speed * gameDelta;
+      this.applyDayNight();
 
       this.updatePlayer(gameDelta, intents);
       this.updateWorld(gameDelta, elapsed);
@@ -211,7 +220,65 @@ export class Game {
   }
 
   private render(): void {
+    if (this.skyBillboard) {
+      this.skyBillboard.position.set(
+        this.camera.position.x + 2.5,
+        this.camera.position.y + (this.night ? 2.8 : 3.2),
+        this.camera.position.z - 18,
+      );
+      this.skyBillboard.quaternion.copy(this.camera.quaternion);
+    }
     this.renderer.render(this.scene, this.camera);
+  }
+
+  private applyDayNight(): void {
+    const wantNight = Math.floor(this.distance / DAY_NIGHT_SEGMENT) % 2 === 1;
+    if (wantNight === this.night) return;
+    this.night = wantNight;
+    this.track.setNight(wantNight);
+    const bg = wantNight ? new THREE.Color('#1a2744') : new THREE.Color('#87d4ef');
+    this.scene.background = bg;
+    if (this.scene.fog) {
+      (this.scene.fog as THREE.Fog).color.copy(bg);
+    }
+    if (this.hemiLight) {
+      this.hemiLight.intensity = wantNight ? 0.55 : 1.55;
+      this.hemiLight.color.set(wantNight ? '#6a7aaa' : '#fff6df');
+      this.hemiLight.groundColor.set(wantNight ? '#1a2030' : '#c4a574');
+    }
+    if (this.sunLight) {
+      this.sunLight.intensity = wantNight ? 0.45 : 2.4;
+      this.sunLight.color.set(wantNight ? '#9bb0ff' : '#fff1bf');
+    }
+    if (this.skyBillboard) {
+      const mat = this.skyBillboard.material as THREE.MeshBasicMaterial;
+      mat.map = wantNight ? this.skyMoon : this.skySun;
+      mat.needsUpdate = true;
+    }
+  }
+
+  private loadSkyTextures(): void {
+    const loader = new THREE.TextureLoader();
+    void loader.loadAsync('textures/sun.png').then((tex) => {
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      this.skySun = tex;
+      if (!this.night && this.skyBillboard) {
+        (this.skyBillboard.material as THREE.MeshBasicMaterial).map = tex;
+        (this.skyBillboard.material as THREE.MeshBasicMaterial).needsUpdate = true;
+      }
+    });
+    void loader.loadAsync('textures/moon.gif').then((tex) => {
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      this.skyMoon = tex;
+      if (this.night && this.skyBillboard) {
+        (this.skyBillboard.material as THREE.MeshBasicMaterial).map = tex;
+        (this.skyBillboard.material as THREE.MeshBasicMaterial).needsUpdate = true;
+      }
+    });
   }
 
   private createScene(): void {
@@ -219,9 +286,11 @@ export class Game {
     this.scene.fog = new THREE.Fog('#87d4ef', 28, 70);
 
     const hemi = new THREE.HemisphereLight('#fff6df', '#c4a574', 1.55);
+    this.hemiLight = hemi;
     this.scene.add(hemi);
 
     const sun = new THREE.DirectionalLight('#fff1bf', 2.4);
+    this.sunLight = sun;
     sun.position.set(-6, 12, 4);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
@@ -239,8 +308,19 @@ export class Game {
     this.scene.add(this.track.group);
     this.scene.add(this.player.group);
     this.player.group.position.set(0, GROUND_Y, 0);
-    this.player.group.rotation.y = Math.PI; // face -Z travel direction... actually model faces -Z already
     this.player.group.rotation.y = 0;
+
+    const skyGeo = new THREE.PlaneGeometry(4.2, 4.2);
+    const skyMat = new THREE.MeshBasicMaterial({
+      transparent: true,
+      depthWrite: false,
+      fog: false,
+    });
+    this.skyBillboard = new THREE.Mesh(skyGeo, skyMat);
+    this.skyBillboard.renderOrder = -1;
+    this.scene.add(this.skyBillboard);
+    this.loadSkyTextures();
+    this.track.setNight(false);
   }
 
   private updatePlayer(gameDelta: number, intents: ReturnType<InputController['read']>): void {
@@ -259,25 +339,39 @@ export class Game {
       }
     }
 
-    if (intents.jumpPressed && !this.airborne && !this.ducking) {
+    // Jump cancels duck immediately (no stand-up lock)
+    if (intents.jumpPressed && !this.airborne) {
+      this.duckTimer = 0;
+      this.ducking = false;
+      this.duckAmount = Math.min(this.duckAmount, 0.35);
       this.vy = JUMP_V;
       this.airborne = true;
       this.audio.jump();
       squash(this.player.visual, this.tweens, 1.12, 0.16);
     }
 
-    // One-shot duck (like jump): press starts a short timed sneak, cannot hold forever
-    if (intents.duckPressed && !this.airborne && this.duckTimer <= 0) {
+    // One-shot duck — can start mid-jump buffer as slide on land
+    if (intents.duckPressed && this.duckTimer <= 0) {
+      if (!this.airborne) {
+        this.duckTimer = DUCK_DURATION;
+        this.audio.duckSfx();
+        squash(this.player.visual, this.tweens, 0.88, 0.14);
+      } else {
+        this.pendingDuck = true;
+      }
+    }
+    if (this.pendingDuck && !this.airborne && this.duckTimer <= 0) {
+      this.pendingDuck = false;
       this.duckTimer = DUCK_DURATION;
       this.audio.duckSfx();
-      squash(this.player.visual, this.tweens, 0.88, 0.14);
     }
     if (this.duckTimer > 0) {
       this.duckTimer = Math.max(0, this.duckTimer - gameDelta);
     }
     this.ducking = this.duckTimer > 0 && !this.airborne;
     const duckTarget = this.ducking ? 1 : 0;
-    this.duckAmount += (duckTarget - this.duckAmount) * Math.min(1, gameDelta * 14);
+    // snappier pose blend — less sticky between stand/duck
+    this.duckAmount += (duckTarget - this.duckAmount) * Math.min(1, gameDelta * 18);
 
     if (this.airborne) {
       this.vy -= GRAVITY * gameDelta;
@@ -363,15 +457,18 @@ export class Game {
       const kind = pickKind();
       this.spawnObstacle(kind, primary, z);
       const placeRoll = this.rng();
+      if (kind === 'seagull') {
+        // Phantom band 1.75–2.35: only low pickups (duck under), never jump-height
+        this.spawnFishLine(primary, z + 0.2, this.rng() < 0.2 ? 'gold' : 'fish', 'duck');
+        return;
+      }
       if (placeRoll < 0.35) {
-        // above obstacle — must jump
+        // above jumpable obstacle — must jump
         this.spawnFishLine(primary, z + 0.4, this.rng() < 0.15 ? 'gold' : 'fish', 'jump');
-      } else if (placeRoll < 0.55) {
-        this.spawnFishLine(secondary, z + 1.5, this.rng() < 0.1 ? 'gold' : 'fish', 'ground');
       } else if (placeRoll < 0.7) {
-        this.spawnFishLine(secondary, z + 1.2, this.rng() < 0.12 ? 'gold' : 'fish', 'duck');
-      } else {
         this.spawnFishLine(secondary, z + 1.5, this.rng() < 0.1 ? 'gold' : 'fish', 'ground');
+      } else {
+        this.spawnFishLine(secondary, z + 1.2, this.rng() < 0.12 ? 'gold' : 'fish', 'duck');
       }
       return;
     }
@@ -383,14 +480,14 @@ export class Game {
     this.spawnObstacle(kindB, secondary, z + this.rng() * 1.2);
     const safe = lanes.find((l) => l !== primary && l !== secondary) ?? 0;
     const risk = this.rng();
-    if (risk < 0.3) {
+    if (risk < 0.3 && kindA !== 'seagull') {
       this.spawnFishLine(primary, z + 0.2, 'fish', 'jump');
     } else if (risk < 0.5) {
       this.spawnFishLine(safe, z + 0.8, 'fish', 'duck');
     } else {
       this.spawnFishLine(safe, z + 0.5, 'fish', 'ground');
     }
-    // rare phantom-under reward
+    // rare: gold under phantom — duck only
     if (progress > 200 && this.rng() < 0.12) {
       this.spawnObstacle('seagull', safe, z + 2.2);
       this.spawnFishLine(safe, z + 2.2, 'gold', 'duck');
@@ -409,6 +506,10 @@ export class Game {
     kind: 'fish' | 'gold',
     placement: 'ground' | 'jump' | 'duck' = 'ground',
   ): void {
+    if (placement === 'jump') {
+      this.spawnJumpArc(lane, z, kind);
+      return;
+    }
     const count = kind === 'gold' ? 1 : 3;
     const spacing = 1.55;
     for (let i = 0; i < count; i += 1) {
@@ -417,9 +518,28 @@ export class Game {
       const t = count === 1 ? 0.5 : i / (count - 1);
       let height = 0.55 + Math.sin(t * Math.PI) * 0.22;
       if (kind === 'gold') height = Math.max(height, 0.85);
-      if (placement === 'jump') height = 1.35 + Math.sin(t * Math.PI) * 0.35;
       if (placement === 'duck') height = 0.35;
       f.spawn(kind, lane, z - i * spacing, height);
+    }
+  }
+
+  /**
+   * Place pickups on the real jump parabola: y(t)=JUMP_V*t - 0.5*G*t^2 + body.
+   * Sampled along Z so arrival times line up with flight (nominal 15 u/s).
+   */
+  private spawnJumpArc(lane: number, z0: number, kind: 'fish' | 'gold'): void {
+    const count = kind === 'gold' ? 1 : 3;
+    // Only the low–mid jump arc so cookies stay under the phantom band (≤1.55)
+    const samples = count === 1 ? [0.12] : [0.08, 0.16, 0.24];
+    const speedRef = 15;
+    for (let i = 0; i < count; i += 1) {
+      const f = this.fish.find((item) => !item.active && !item.group.visible);
+      if (!f) return;
+      const t = samples[Math.min(i, samples.length - 1)];
+      const feet = JUMP_V * t - 0.5 * GRAVITY * t * t;
+      const height = Math.min(1.55, Math.max(0.85, feet + 0.7));
+      const z = z0 + 1.0 - t * speedRef;
+      f.spawn(kind, lane, z, height);
     }
   }
 
@@ -450,8 +570,9 @@ export class Game {
   }
 
   private collectFish(kind: 'fish' | 'gold', _value: number, at: THREE.Vector3): void {
-    // Consecutive pickups: +1 combo each (no pickup score)
-    this.pickupStreak += 1;
+    // Cake worth +5 combo; cookie +1
+    const add = kind === 'gold' ? 5 : 1;
+    this.pickupStreak += add;
     this.comboTimer = 1.4;
     this.combo = this.pickupStreak;
     if (this.combo > this.runMaxCombo) this.runMaxCombo = this.combo;
@@ -544,6 +665,7 @@ export class Game {
     this.ducking = false;
     this.duckAmount = 0;
     this.duckTimer = 0;
+    this.pendingDuck = false;
     this.lean = 0;
     this.speed = this.tuning.baseSpeed;
     this.nextSpawnZ = -34;

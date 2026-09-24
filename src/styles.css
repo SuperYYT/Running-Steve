@@ -173,7 +173,7 @@ body {
 }
 
 #leaderboard .board {
-  width: min(200px, 40vw);
+  width: min(170px, 28vw);
   padding: 10px 12px;
   border-radius: 12px;
   border: 1px solid rgba(247, 239, 216, 0.28);
