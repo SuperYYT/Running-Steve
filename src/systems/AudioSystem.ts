@@ -1,6 +1,6 @@
 const CRASH_SFX_URL = 'audio/mariofail.mp3';
 /** Keep fail sting clear but not harsh — Mario fail clips are often near full scale. */
-const CRASH_VOLUME = 0.28;
+const CRASH_VOLUME = 0.16;
 
 export class AudioSystem {
   private context: AudioContext | null = null;
