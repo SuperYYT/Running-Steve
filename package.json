@@ -1,7 +1,7 @@
 {
   "name": "running-steve",
-  "version": "3.5.0",
-  "description": "Running Steve v3.5.0 — phantom uses provided skin texture",
+  "version": "3.5.1",
+  "description": "phantom rebuilt from Bedrock geo + tga skin",
   "private": true,
   "type": "module",
   "scripts": {

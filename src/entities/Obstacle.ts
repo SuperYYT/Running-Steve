@@ -182,7 +182,12 @@ export class Obstacle {
     }
     visual.visible = true;
     this.builtKind = kind;
-    this.wings = kind === 'seagull' ? visual.children.filter((c) => c.userData.flapper) : [];
+    this.wings = [];
+    if (kind === 'seagull') {
+      visual.traverse((obj) => {
+        if (obj.userData.flapper) this.wings.push(obj);
+      });
+    }
   }
 
   private buildMesh(kind: ObstacleKind): THREE.Group {
@@ -226,66 +231,100 @@ export class Obstacle {
       root.add(log, ring, knot);
       return root;
     }
-    // ── Phantom with provided Minecraft skin (phantom.tga → phantom.png)
-    // Official-ish cuboid UVs on 64×64; 16 px = 1 block. Flies at y≈2.05.
-    const y = 2.05;
+    // ── Phantom: Bedrock phantom.geo.json + phantom.tga (64×64)
+    return this.buildPhantom();
+  }
+
+  /** Rebuild from official-ish Bedrock geometry (phantom.geo.json). */
+  private buildPhantom(): THREE.Group {
+    const root = new THREE.Group();
     const tex = Obstacle.phantomTex;
-
-    if (tex) {
-      // Head 7×4×5 @ (0,0)
-      const head = makeSkinBox(tex, 7, 4, 5, 0, 0);
-      head.position.set(0, y + 0.05, -0.35);
-      root.add(head);
-
-      // Body 8×2×16 @ (0,10) — long flat torso
-      const body = makeSkinBox(tex, 8, 2, 16, 0, 10);
-      body.position.set(0, y, 0.1);
-      root.add(body);
-
-      // Tail 3×2×8 @ (34,12)
-      const tail = makeSkinBox(tex, 3, 2, 8, 34, 12);
-      tail.position.set(0, y - 0.02, 0.55);
-      root.add(tail);
-
-      // Wings 10×2×16 @ (20,0) — flap groups at shoulder
-      for (const side of [-1, 1]) {
-        const wing = new THREE.Group();
-        wing.position.set(side * 0.18, y + 0.02, 0.05);
-        wing.userData.flapper = true;
-        wing.userData.side = side;
-        const wingMesh = makeSkinBox(tex, 10, 2, 16, 20, 0);
-        wingMesh.position.set(side * 0.55, 0, 0.1);
-        wing.add(wingMesh);
-        // Outer membrane segment
-        const wing2 = makeSkinBox(tex, 10, 2, 16, 20, 0);
-        wing2.position.set(side * 1.35, 0, 0.15);
-        wing2.rotation.y = side * 0.25;
-        wing.add(wing2);
-        root.add(wing);
-      }
+    if (!tex) {
+      // brief gray stand-in until skin loads (showKind rebuilds after)
+      const stub = new THREE.Mesh(
+        new THREE.BoxGeometry(1.6, 0.25, 0.8),
+        Obstacle.matFor('#3d4f9a'),
+      );
+      stub.position.y = 2.05;
+      root.add(stub);
       return root;
     }
 
-    // Fallback solid colors if skin not yet loaded
-    const bone = '#c4b090';
-    const membrane = '#3d4f9a';
-    const flesh = '#8a6a4a';
+    // geo px → world (16px = 1). Body cube origin[-3,23,-8] size[5,3,9] → center
+    const bodyCx = -3 + 5 / 2;
+    const bodyCy = 23 + 3 / 2;
+    const bodyCz = -8 + 9 / 2;
+    const FLIGHT_Y = 2.05;
+    const px = (n: number) => n / 16;
+    const place = (origin: number[], size: number[]) => {
+      const cx = origin[0] + size[0] / 2;
+      const cy = origin[1] + size[1] / 2;
+      const cz = origin[2] + size[2] / 2;
+      // face +Z toward player (geo faces -Z)
+      return new THREE.Vector3(-px(cx - bodyCx), px(cy - bodyCy) + FLIGHT_Y, -px(cz - bodyCz));
+    };
 
-    const torso = box(0.28, 0.18, 0.55, flesh);
-    torso.position.set(0, y, 0.05);
-    const head = box(0.24, 0.16, 0.28, bone);
-    head.position.set(0, y + 0.02, -0.32);
-    root.add(torso, head);
-    for (const side of [-1, 1]) {
+    const addCube = (
+      parent: THREE.Object3D,
+      origin: number[],
+      size: number[],
+      uv: number[],
+    ) => {
+      const mesh = makeSkinBox(tex, size[0], size[1], size[2], uv[0], uv[1]);
+      mesh.position.copy(place(origin, size));
+      parent.add(mesh);
+    };
+
+    const bonePivot = (p: number[]) =>
+      new THREE.Vector3(-px(p[0] - bodyCx), px(p[1] - bodyCy) + FLIGHT_Y, -px(p[2] - bodyCz));
+
+    // body
+    addCube(root, [-3, 23, -8], [5, 3, 9], [0, 8]);
+
+    // head (bone rot X 11.5° at pivot 0,23,-7)
+    const headBone = new THREE.Group();
+    headBone.position.copy(bonePivot([0, 23, -7]));
+    headBone.rotation.x = (-11.5 * Math.PI) / 180;
+    root.add(headBone);
+    {
+      const mesh = makeSkinBox(tex, 7, 3, 5, 0, 0);
+      const local = place([-4, 22, -12], [7, 3, 5]).sub(bonePivot([0, 23, -7]));
+      mesh.position.copy(local);
+      headBone.add(mesh);
+    }
+
+    // tail + tip
+    addCube(root, [-2, 24, 1], [3, 2, 6], [3, 20]);
+    addCube(root, [-1, 24.5, 7], [1, 1, 6], [4, 29]);
+
+    // wings (flap on Z roll) + tips as children
+    for (const side of [1, -1]) {
+      const pivot = side === 1 ? [2, 26, -8] : [-3, 26, -8];
       const wing = new THREE.Group();
-      wing.position.set(side * 0.12, y + 0.04, 0.05);
+      wing.position.copy(bonePivot(pivot));
       wing.userData.flapper = true;
       wing.userData.side = side;
-      const mem = box(1.4, 0.05, 0.5, membrane);
-      mem.position.set(side * 0.7, 0, 0.05);
-      wing.add(mem);
       root.add(wing);
+
+      const innerOrigin = side === 1 ? [2, 24, -8] : [-9, 24, -8];
+      const inner = makeSkinBox(tex, 6, 2, 9, 23, 12);
+      inner.position.copy(place(innerOrigin, [6, 2, 9]).sub(bonePivot(pivot)));
+      wing.add(inner);
+
+      const tipPivot = side === 1 ? [8, 26, -8] : [-9, 24, -8];
+      const tip = new THREE.Group();
+      tip.position.copy(bonePivot(tipPivot).sub(bonePivot(pivot)));
+      tip.userData.flapper = true;
+      tip.userData.side = side * 0.35;
+      wing.add(tip);
+      const tipOrigin = side === 1 ? [8, 25, -8] : [-22, 25, -8];
+      const tipMesh = makeSkinBox(tex, 13, 1, 9, 16, 24);
+      tipMesh.position.copy(place(tipOrigin, [13, 1, 9]).sub(bonePivot(tipPivot)));
+      tip.add(tipMesh);
     }
+
+    // geo faces -Z; flip to +Z so head leads toward the player
+    root.rotation.y = Math.PI;
     return root;
   }
 
