@@ -9,12 +9,13 @@
     <title>史蒂夫快跑 Running Steve</title>
   </head>
   <body>
-    <main id="app">
+    <main id="app" data-screen="home">
       <canvas id="game-canvas" aria-label="史蒂夫快跑游戏画面"></canvas>
       <div id="flash-overlay" aria-hidden="true"></div>
       <div id="jackpot-overlay" aria-hidden="true"></div>
       <div id="score-pop" aria-hidden="true"></div>
 
+      <!-- 游玩 HUD：只保留距离 / 连击 / 暂停 -->
       <section id="hud" aria-live="polite">
         <div class="hud-cluster">
           <div class="hud-metric">
@@ -27,59 +28,72 @@
           </div>
         </div>
         <div class="hud-cluster right">
-          <div class="hud-metric">
+          <div class="hud-metric hud-meta">
             <span>速度</span>
             <strong><span id="speed-value">0.0</span></strong>
           </div>
-          <div class="hud-metric">
+          <div class="hud-metric hud-meta">
             <span>最佳</span>
             <strong id="best-value">0</strong>
           </div>
-          <button id="pause-button" type="button" data-action="pause" aria-label="暂停">⏸</button>
+          <button id="pause-button" type="button" data-action="pause" aria-label="暂停">
+            <span class="pause-bars" aria-hidden="true"></span>
+          </button>
         </div>
         <div id="status-line">准备出发</div>
       </section>
 
-      <aside id="account-bar">
-        <div id="auth-guest">
-          <a id="login-link" class="auth-btn" href="/auth/login?returnTo=/">登录 MineBBS</a>
+      <!-- 账号：游玩时收成小胶囊，主页展开 -->
+      <aside id="account-bar" data-screen="home" data-open="0">
+        <button id="account-toggle" type="button" aria-label="账号" title="可拖动">
+          <span class="drag-dots" aria-hidden="true"></span>
+          <span id="account-chip-label">未登录</span>
+          <span class="chev" aria-hidden="true"></span>
+        </button>
+        <div id="account-body" hidden>
+          <div id="auth-guest">
+            <a id="login-link" class="auth-btn" href="/auth/login?returnTo=/">登录 MineBBS</a>
+            <p id="auth-best">登录后同步最佳成绩</p>
+          </div>
+          <div id="auth-user" hidden>
+            <div class="user-row">
+              <span id="auth-username"></span>
+              <button id="logout-button" type="button">退出</button>
+            </div>
+            <p id="auth-best-user">—</p>
+          </div>
+          <p id="auth-status"></p>
         </div>
-        <div id="auth-user" hidden>
-          <span id="auth-username"></span>
-          <button id="logout-button" type="button">退出</button>
-        </div>
-        <p id="auth-best">登录后同步最佳成绩</p>
-        <p id="auth-status"></p>
       </aside>
 
-      <section id="leaderboard" data-state="loading">
-        <div class="board">
-          <h3>距离榜</h3>
-          <ol id="board-distance"></ol>
+      <!-- 排行：主页底部抽屉 + 标签页，游玩时隐藏 -->
+      <section id="leaderboard" data-state="loading" data-screen="home">
+        <div class="board-head">
+          <div class="board-tabs" role="tablist">
+            <button type="button" role="tab" data-board="distance" class="is-active">距离</button>
+            <button type="button" role="tab" data-board="combo">连击</button>
+            <button type="button" role="tab" data-board="runs">局数</button>
+          </div>
+          <p class="board-note">今日榜 · 24:00 重置</p>
         </div>
-        <div class="board">
-          <h3>连击榜</h3>
-          <ol id="board-combo"></ol>
-        </div>
-        <div class="board">
-          <h3>局数榜</h3>
-          <ol id="board-runs"></ol>
+        <div class="board-panel">
+          <ol id="board-distance" data-board-panel="distance"></ol>
+          <ol id="board-combo" data-board-panel="combo" hidden></ol>
+          <ol id="board-runs" data-board-panel="runs" hidden></ol>
         </div>
       </section>
 
       <section id="title-panel" class="panel">
         <p class="eyebrow">主世界 · 沿海小径</p>
-        <h1>史蒂夫跑酷</h1>
-        <p class="lede">变道躲方块 · 跳过沙堆 · 蹲下躲幻翼 · 一路捡曲奇和蛋糕</p>
+        <h1>史蒂夫快跑</h1>
+        <p class="lede">变道 · 跳 · 蹲 · 一路捡曲奇和蛋糕</p>
         <ul class="controls-hint">
-          <li><kbd>←</kbd><kbd>→</kbd><kbd>A</kbd><kbd>D</kbd> 变道</li>
-          <li><kbd>空格</kbd><kbd>↑</kbd><kbd>W</kbd> 跳跃</li>
-          <li><kbd>↓</kbd><kbd>S</kbd><kbd>Shift</kbd> 蹲下（点按）</li>
-          <li><kbd>Esc</kbd> 暂停</li>
+          <li><kbd>←</kbd><kbd>→</kbd> 变道</li>
+          <li><kbd>空格</kbd> 跳</li>
+          <li><kbd>↓</kbd> 蹲</li>
         </ul>
         <ul class="controls-hint touch-hint">
-          <li>←→ 滑动变道 · 上滑跳跃</li>
-          <li>下滑蹲下 · 也可用下方按键</li>
+          <li>滑动或四角按键</li>
         </ul>
         <div class="actions">
           <button class="primary" type="button" data-action="start">开始奔跑</button>
@@ -88,7 +102,7 @@
 
       <section id="pause-panel" class="panel" hidden>
         <h2>暂停</h2>
-        <p class="lede">海风正好，歇一口再走 · 按 <kbd>Esc</kbd> 继续</p>
+        <p class="lede">按 <kbd>Esc</kbd> 继续</p>
         <div class="actions">
           <button class="primary" type="button" data-action="pause">继续</button>
           <button class="ghost" type="button" data-action="restart">重新开始</button>

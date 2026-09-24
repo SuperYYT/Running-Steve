@@ -9,6 +9,7 @@ declare global {
       setReducedMotion: (enabled: boolean) => void;
       hideDebugUi: (hidden: boolean) => void;
       addPickups: (n: number) => { combo: number; streak: number; maxCombo: number };
+      setNight?: (night: boolean) => void;
     };
     __THREE_GAME_DIAGNOSTICS__?: {
       frame: number;

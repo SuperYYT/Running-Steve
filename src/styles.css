@@ -90,25 +90,75 @@ body {
     0 0 40px rgba(255, 168, 80, 0.35);
 }
 
+/* ── 账号：游玩时仅小胶囊，主页可展开 ───────────────── */
 #account-bar {
   position: absolute;
-  top: calc(max(12px, env(safe-area-inset-top)) + 56px);
+  top: calc(max(12px, env(safe-area-inset-top)) + 52px);
   right: max(12px, env(safe-area-inset-right));
   z-index: 4;
-  min-width: 200px;
-  max-width: min(260px, 46vw);
-  padding: 10px 12px;
+  pointer-events: auto;
+  max-width: min(240px, 70vw);
+}
+
+#account-bar[data-screen='playing'] {
+  top: max(10px, env(safe-area-inset-top));
+  max-width: none;
+}
+
+#account-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(247, 239, 216, 0.28);
+  background: var(--panel);
+  color: var(--sand);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: none;
+  backdrop-filter: blur(8px);
+}
+
+#account-bar[data-screen='playing'] #account-toggle {
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  opacity: 0.75;
+}
+
+#account-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 28vw;
+}
+
+#account-bar[data-screen='playing'] .chev,
+#account-bar[data-screen='playing'] .drag-dots {
+  display: none;
+}
+
+#account-body {
+  margin-top: 8px;
+  padding: 12px;
   border-radius: 12px;
   border: 1px solid rgba(247, 239, 216, 0.28);
   background: var(--panel);
   box-shadow: 0 8px 20px rgba(28, 42, 56, 0.18);
   backdrop-filter: blur(8px);
   font-size: 0.82rem;
-  pointer-events: auto;
 }
 
-#account-bar p {
-  margin: 6px 0 0;
+#account-body[hidden] {
+  display: none !important;
+}
+
+#account-body p {
+  margin: 8px 0 0;
   color: rgba(247, 239, 216, 0.75);
   font-size: 0.75rem;
   line-height: 1.35;
@@ -124,7 +174,7 @@ body {
   display: none !important;
 }
 
-#auth-user {
+.user-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -158,6 +208,7 @@ body {
   color: #fff8ef;
 }
 
+/* ── 排行抽屉：主页底部，单榜 + 标签 ───────────────── */
 #leaderboard[hidden] {
   display: none !important;
 }
@@ -165,28 +216,62 @@ body {
 #leaderboard {
   position: absolute;
   left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
   bottom: max(12px, env(safe-area-inset-bottom));
   z-index: 3;
-  display: flex;
-  gap: 10px;
-  pointer-events: none;
-}
-
-#leaderboard .board {
-  width: min(170px, 28vw);
-  padding: 10px 12px;
-  border-radius: 12px;
+  width: min(360px, calc(100vw - 24px));
+  margin: 0 auto;
+  pointer-events: auto;
+  border-radius: 14px;
   border: 1px solid rgba(247, 239, 216, 0.28);
   background: var(--panel);
   box-shadow: 0 8px 20px rgba(28, 42, 56, 0.18);
   backdrop-filter: blur(8px);
+  overflow: hidden;
 }
 
-#leaderboard h3 {
-  margin: 0 0 8px;
-  font-size: 0.85rem;
+.board-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  border-bottom: 1px solid rgba(247, 239, 216, 0.12);
+}
+
+.board-head {
+  display: flex;
+  flex-direction: column;
+}
+
+.board-note {
+  margin: 0;
+  padding: 4px 12px 0;
+  text-align: right;
+  font-size: 0.65rem;
+  color: rgba(247, 239, 216, 0.5);
+  letter-spacing: 0.02em;
+}
+
+.board-tabs button {
+  min-height: 36px;
+  border: 0;
+  background: transparent;
+  color: rgba(247, 239, 216, 0.65);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.board-tabs button.is-active {
   color: var(--gold);
-  letter-spacing: 0.04em;
+  background: rgba(245, 186, 73, 0.12);
+  box-shadow: inset 0 -2px 0 var(--gold);
+}
+
+.board-panel {
+  padding: 8px 12px 10px;
+  max-height: min(28vh, 168px);
+  overflow: auto;
 }
 
 #leaderboard ol {
@@ -195,17 +280,21 @@ body {
   list-style: none;
   display: grid;
   gap: 4px;
-  font-size: 0.75rem;
-  max-height: 180px;
-  overflow: auto;
+  font-size: 0.78rem;
+}
+
+/* display:grid 会覆盖 [hidden]，必须显式恢复 */
+#leaderboard ol[hidden] {
+  display: none !important;
 }
 
 #leaderboard li {
   display: grid;
-  grid-template-columns: 1.4em 1fr auto;
-  gap: 6px;
+  grid-template-columns: 1.6em 1fr auto;
+  gap: 8px;
   align-items: center;
   color: rgba(247, 239, 216, 0.9);
+  min-height: 22px;
 }
 
 #leaderboard .rank {
@@ -224,43 +313,30 @@ body {
   font-weight: 700;
 }
 
-#leaderboard[data-state='error']::after {
+#leaderboard[data-state='error'] .board-panel::after {
   content: '排行暂不可用';
-  grid-column: 1 / -1;
   color: rgba(247, 239, 216, 0.6);
   font-size: 0.75rem;
 }
 
-#leaderboard[data-state='loading']::after {
+#leaderboard[data-state='loading'] .board-panel::after {
   content: '加载排行…';
   color: rgba(247, 239, 216, 0.6);
   font-size: 0.75rem;
 }
 
-@media (pointer: coarse), (max-width: 760px) {
-  #account-bar {
-    right: max(12px, env(safe-area-inset-right));
-    top: auto;
-    bottom: calc(max(14px, env(safe-area-inset-bottom)) + 88px);
-    max-width: min(220px, 52vw);
-  }
+/* 游玩时彻底让位给画面 */
+#app[data-screen='playing'] #account-bar #account-body {
+  display: none !important;
+}
 
-  #leaderboard {
-    left: max(8px, env(safe-area-inset-left));
-    right: max(8px, env(safe-area-inset-right));
-    bottom: calc(max(14px, env(safe-area-inset-bottom)) + 80px);
-    gap: 8px;
-  }
+#app[data-screen='playing'] #leaderboard {
+  display: none !important;
+}
 
-  #leaderboard .board {
-    width: auto;
-    flex: 1;
-    min-width: 0;
-  }
-
-  #leaderboard ol {
-    max-height: 96px;
-  }
+/* 触控键只在游玩时出现，避免压住主页排行 */
+#app:not([data-screen='playing']) #touch-controls {
+  display: none !important;
 }
 
 #hud {
@@ -279,11 +355,13 @@ body {
 .hud-cluster {
   display: flex;
   gap: 8px;
-  align-items: center;
+  /* 整行等高，避免距离换行把方块撑得参差 */
+  align-items: stretch;
 }
 
 .hud-metric {
   min-width: 88px;
+  min-height: 54px;
   padding: 8px 10px;
   border-radius: 10px;
   border: 1px solid rgba(247, 239, 216, 0.28);
@@ -291,6 +369,9 @@ body {
   box-shadow: 0 8px 20px rgba(28, 42, 56, 0.18);
   backdrop-filter: blur(8px);
   white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .hud-metric.combo {
@@ -302,6 +383,7 @@ body {
   color: rgba(247, 239, 216, 0.72);
   font-size: 0.68rem;
   letter-spacing: 0.04em;
+  line-height: 1.2;
 }
 
 .hud-metric strong {
@@ -310,6 +392,7 @@ body {
   font-size: 1.15rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  line-height: 1.15;
 }
 
 .hud-metric small {
@@ -317,17 +400,78 @@ body {
   opacity: 0.75;
 }
 
+/* 数值与单位不拆行，保证各卡片同高 */
+.hud-metric strong {
+  white-space: nowrap;
+}
+
 #pause-button {
   width: 44px;
-  height: 44px;
-  border-radius: 12px;
+  min-width: 44px;
+  min-height: 54px;
+  height: auto;
+  border-radius: 10px;
   border: 1px solid rgba(247, 239, 216, 0.3);
   background: var(--panel);
   color: var(--sand);
-  font-size: 1rem;
   pointer-events: auto;
   cursor: pointer;
   touch-action: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  align-self: stretch;
+}
+
+/* CSS 画暂停双竖条，不用 Emoji */
+.pause-bars {
+  display: block;
+  width: 12px;
+  height: 14px;
+  border-left: 3px solid currentColor;
+  border-right: 3px solid currentColor;
+  box-sizing: border-box;
+}
+
+#account-toggle .chev {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid rgba(247, 239, 216, 0.65);
+  border-bottom: 2px solid rgba(247, 239, 216, 0.65);
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform 0.15s ease;
+}
+
+#account-bar[data-open='1'] #account-toggle .chev {
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+
+.drag-dots {
+  width: 14px;
+  height: 10px;
+  flex: 0 0 auto;
+  background-image: radial-gradient(circle, rgba(247, 239, 216, 0.55) 1.2px, transparent 1.3px);
+  background-size: 5px 5px;
+  background-repeat: repeat;
+  opacity: 0.8;
+}
+
+#account-bar {
+  touch-action: none;
+}
+
+#account-toggle {
+  cursor: grab;
+}
+
+#account-toggle:active {
+  cursor: grabbing;
+}
+
+#account-bar.is-dragging {
+  opacity: 0.92;
+  outline: 1px dashed rgba(245, 186, 73, 0.45);
 }
 
 #status-line {
@@ -573,16 +717,37 @@ button.ghost {
 
 @media (pointer: coarse), (max-width: 760px) {
   .hud-metric {
-    min-width: 72px;
-    padding: 6px 8px;
+    min-width: 64px;
+    min-height: 48px;
+    padding: 5px 8px;
+    border-radius: 8px;
   }
 
   .hud-metric strong {
-    font-size: 1rem;
+    font-size: 0.95rem;
+    white-space: nowrap;
+  }
+
+  .hud-metric.hud-meta {
+    min-width: 52px;
+    opacity: 0.85;
+  }
+
+  .hud-metric.hud-meta strong {
+    font-size: 0.82rem;
+  }
+
+  #pause-button {
+    width: 40px;
+    min-width: 40px;
+    min-height: 48px;
   }
 
   #status-line {
-    font-size: 0.75rem;
+    font-size: 0.72rem;
+    padding: 6px 10px;
+    min-width: 0;
+    max-width: 50vw;
   }
 
   #touch-controls {
@@ -595,9 +760,48 @@ button.ghost {
 
   .controls-hint.touch-hint {
     display: grid;
+    margin-bottom: 12px;
   }
 
   .panel {
-    padding: 22px 18px 18px;
+    padding: 20px 16px 16px;
+    width: min(400px, calc(100vw - 24px));
+  }
+
+  .panel h1 {
+    font-size: 1.85rem;
+    margin: 6px 0;
+  }
+
+  .lede {
+    margin-bottom: 10px;
+    font-size: 0.88rem;
+  }
+
+  /* 主页：标题上移，给底部排行留白 */
+  #title-panel {
+    top: 42%;
+  }
+
+  #leaderboard {
+    width: min(100vw - 24px, 420px);
+  }
+
+  .board-panel {
+    max-height: min(24vh, 140px);
+  }
+
+  #account-bar {
+    top: calc(max(10px, env(safe-area-inset-top)) + 48px);
+    right: max(10px, env(safe-area-inset-right));
+  }
+
+  #account-bar[data-screen='playing'] {
+    top: max(8px, env(safe-area-inset-top));
+    right: max(8px, env(safe-area-inset-right));
+  }
+
+  #account-chip-label {
+    max-width: 22vw;
   }
 }

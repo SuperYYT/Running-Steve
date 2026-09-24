@@ -1,4 +1,4 @@
-import { rankRows } from './db-shape.js';
+import { dayStart, rankRows } from './db-shape.js';
 
 /**
  * In-process driver for tests / local dev without MySQL.
@@ -87,17 +87,40 @@ export function createMemoryDb() {
   }
 
   function topBy(column, limit = 50) {
-    const key =
-      column === 'combo' ? 'best_combo' : column === 'runs' ? 'run_count' : 'best_distance';
-    const rows = [...users.values()]
-      .filter((u) => u[key] > 0)
-      .sort((a, b) => b[key] - a[key] || a.updated_at.localeCompare(b.updated_at))
+    // 每日 24:00 自然切换：只统计今天的 runs
+    const since = dayStart().getTime();
+    const todays = runs.filter((r) => new Date(r.created_at).getTime() >= since);
+    const byUser = new Map();
+    for (const r of todays) {
+      const cur = byUser.get(r.user_id);
+      if (!cur) {
+        byUser.set(r.user_id, {
+          distance: r.distance,
+          combo: r.max_combo ?? 0,
+          runs: 1,
+          firstAt: r.created_at,
+        });
+      } else {
+        cur.distance = Math.max(cur.distance, r.distance);
+        cur.combo = Math.max(cur.combo, r.max_combo ?? 0);
+        cur.runs += 1;
+      }
+    }
+    const key = column === 'combo' ? 'combo' : column === 'runs' ? 'runs' : 'distance';
+    const rows = [...byUser.entries()]
+      .map(([userId, s]) => {
+        const u = users.get(userId);
+        return {
+          username: u?.username ?? '?',
+          avatar_url: u?.avatar_url ?? null,
+          value: s[key],
+          firstAt: s.firstAt,
+        };
+      })
+      .filter((r) => r.value > 0)
+      .sort((a, b) => b.value - a.value || a.firstAt.localeCompare(b.firstAt))
       .slice(0, limit)
-      .map((u) => ({
-        username: u.username,
-        avatar_url: u.avatar_url,
-        value: u[key],
-      }));
+      .map(({ username, avatar_url, value }) => ({ username, avatar_url, value }));
     return rankRows(rows);
   }
 

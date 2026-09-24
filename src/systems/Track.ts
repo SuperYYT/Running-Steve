@@ -31,11 +31,19 @@ export class Track {
       this.spawnSegment(-i * this.segmentLength);
     }
     this.buildDecor();
+    // 双点光池：夜间照亮最近路灯附近
+    for (let i = 0; i < 2; i += 1) {
+      const light = new THREE.PointLight('#ffd28a', 18, 14, 2);
+      light.visible = false;
+      this.lampLights.push(light);
+      this.group.add(light);
+    }
   }
 
   update(delta: number, speed: number): number {
     const dz = speed * delta;
     this.scroll += dz;
+    this.syncClock += delta;
     for (const seg of this.segments) {
       seg.z += dz;
       seg.group.position.z = seg.z;
@@ -56,6 +64,7 @@ export class Track {
         dash.position.z -= DASH_WRAP;
       }
     }
+    if (this.night) this.syncLampLights();
     return dz;
   }
 
@@ -68,15 +77,72 @@ export class Track {
   }
 
   setNight(night: boolean): void {
+    this.night = night;
     for (const decor of this.decorPool) {
       const dayFlame = decor.userData.dayFlame as THREE.Object3D | undefined;
       const nightLamp = decor.userData.nightLamp as THREE.Object3D | undefined;
       const nightArm = decor.userData.nightArm as THREE.Object3D | undefined;
+      const glow = decor.userData.nightGlow as THREE.Object3D | undefined;
       if (dayFlame) dayFlame.visible = !night;
       if (nightLamp) nightLamp.visible = night;
       if (nightArm) nightArm.visible = night;
+      if (glow) glow.visible = night;
+    }
+    for (const light of this.lampLights) light.visible = night;
+    this.syncLampLights();
+  }
+
+  /** 池化点光吸附最近路灯；节流，避免每帧分配 */
+  syncLampLights(force = false): void {
+    if (!this.night || this.lampLights.length === 0) return;
+    const now = this.syncClock;
+    if (!force && now - this.lastLightSync < 0.2) return;
+    this.lastLightSync = now;
+    let best0: THREE.Object3D | null = null;
+    let best1: THREE.Object3D | null = null;
+    let d0 = Infinity;
+    let d1 = Infinity;
+    for (const decor of this.decorPool) {
+      if (!decor.userData.nightLamp) continue;
+      const d = Math.abs(decor.position.z);
+      if (d < d0) {
+        d1 = d0;
+        best1 = best0;
+        d0 = d;
+        best0 = decor;
+      } else if (d < d1) {
+        d1 = d;
+        best1 = decor;
+      }
+    }
+    const pair: Array<THREE.Object3D | null> = [best0, best1];
+    for (let i = 0; i < this.lampLights.length; i += 1) {
+      const light = this.lampLights[i];
+      const src = pair[i];
+      if (!src) {
+        light.visible = false;
+        continue;
+      }
+      light.visible = true;
+      light.position.set(src.position.x, 1.7, src.position.z);
     }
   }
+
+  private readonly lampLights: THREE.PointLight[] = [];
+  private night = false;
+  private syncClock = 0;
+  private lastLightSync = -1;
+  private readonly matKeyCache = new Map<string, THREE.MeshStandardMaterial>();
+  private readonly glowGeo = new THREE.CircleGeometry(1.6, 20);
+  private readonly lampBoxGeo = new THREE.BoxGeometry(0.5, 0.4, 0.5);
+  private readonly lampArmGeo = new THREE.BoxGeometry(0.08, 0.5, 0.08);
+  private readonly glowMat = new THREE.MeshBasicMaterial({
+    color: '#ffcc66',
+    transparent: true,
+    opacity: 0.22,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
 
   dispose(): void {
     for (const geo of this.geometries) geo.dispose();
@@ -171,19 +237,27 @@ export class Track {
       dayFlame.position.y = 0.4;
       g.add(dayFlame);
       const lamp = this.mesh(
-        new THREE.BoxGeometry(0.45, 0.35, 0.45),
-        this.mat('#ffe9a0', 0.4, 0.05, '#ffcc55', 1.2),
+        this.lampBoxGeo,
+        this.mat('#ffe9a0', 0.4, 0.05, '#ffcc55', 2.2),
       );
       lamp.position.set(0, 1.55, 0);
       lamp.visible = false;
       g.add(lamp);
-      const lampArm = this.mesh(new THREE.BoxGeometry(0.08, 0.5, 0.08), this.mat('#5a5a5a', 0.7, 0.1));
+      const lampArm = this.mesh(this.lampArmGeo, this.mat('#5a5a5a', 0.7, 0.1));
       lampArm.position.set(0, 1.25, 0);
       lampArm.visible = false;
       g.add(lampArm);
+      // 路面光斑（假光，夜间可读）
+      const glow = new THREE.Mesh(this.glowGeo, this.glowMat);
+      glow.rotation.x = -Math.PI / 2;
+      glow.position.set(0, 0.04, 0.3);
+      glow.visible = false;
+      glow.renderOrder = 2;
+      g.add(glow);
       g.userData.dayFlame = dayFlame;
       g.userData.nightLamp = lamp;
       g.userData.nightArm = lampArm;
+      g.userData.nightGlow = glow;
     } else {
       // Beacon tower (stone bricks + glowing core)
       const tower = this.mesh(new THREE.BoxGeometry(1.2, 4.2, 1.2), this.mat('#7a7a7a', 0.8, 0.05));
@@ -227,6 +301,9 @@ export class Track {
     emissive?: string,
     emissiveIntensity = 0,
   ): THREE.MeshStandardMaterial {
+    const key = `${color}|${roughness}|${metalness}|${emissive ?? ''}|${emissiveIntensity}`;
+    const hit = this.matKeyCache.get(key);
+    if (hit) return hit;
     const m = new THREE.MeshStandardMaterial({
       color,
       roughness,
@@ -237,6 +314,7 @@ export class Track {
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1,
     });
+    this.matKeyCache.set(key, m);
     this.materials.push(m);
     return m;
   }

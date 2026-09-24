@@ -14,9 +14,20 @@ export class Hud {
   private readonly scorePop = this.getElement('#score-pop');
   private readonly jackpotOverlay = this.getElement('#jackpot-overlay');
 
-  private setLeaderboardVisible(visible: boolean): void {
-    const el = document.querySelector<HTMLElement>('#leaderboard');
-    if (el) el.hidden = !visible;
+  private setChromeVisible(home: boolean): void {
+    const app = document.querySelector<HTMLElement>('#app');
+    if (app) app.dataset.screen = home ? 'home' : 'playing';
+    const lb = document.querySelector<HTMLElement>('#leaderboard');
+    if (lb) lb.hidden = !home;
+    const account = document.querySelector<HTMLElement>('#account-bar');
+    if (account) {
+      account.dataset.screen = home ? 'home' : 'playing';
+      if (!home) {
+        const body = account.querySelector<HTMLElement>('#account-body');
+        if (body) body.hidden = true;
+        account.dataset.open = '0';
+      }
+    }
   }
 
   showTitle(best: number): void {
@@ -25,7 +36,7 @@ export class Hud {
     this.gameoverPanel.hidden = true;
     this.pausePanel.hidden = true;
     this.statusLine.textContent = '准备出发';
-    this.setLeaderboardVisible(true);
+    this.setChromeVisible(true);
   }
 
   showPlaying(): void {
@@ -33,12 +44,12 @@ export class Hud {
     this.gameoverPanel.hidden = true;
     this.pausePanel.hidden = true;
     this.statusLine.textContent = '全力奔跑';
-    this.setLeaderboardVisible(false);
+    this.setChromeVisible(false);
   }
 
   showPaused(): void {
     this.pausePanel.hidden = false;
-    this.setLeaderboardVisible(false);
+    this.setChromeVisible(false);
   }
 
   showGameOver(distance: number, maxCombo: number, best: number, reason: string): void {
@@ -50,7 +61,7 @@ export class Hud {
     this.finalCombo.textContent = `×${Math.max(1, maxCombo)}`;
     this.finalBest.textContent = String(best);
     this.statusLine.textContent = '被击中了';
-    this.setLeaderboardVisible(false);
+    this.setChromeVisible(false);
   }
 
   update(distance: number, combo: number, best: number, speed: number): void {

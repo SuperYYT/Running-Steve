@@ -1,6 +1,7 @@
 {
   "name": "running-steve",
-  "version": "3.4.0",
+  "version": "3.5.0",
+  "description": "Running Steve v3.5.0 — phantom uses provided skin texture",
   "private": true,
   "type": "module",
   "scripts": {

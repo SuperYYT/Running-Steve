@@ -23,6 +23,8 @@ const MAX_FISH = 48;
 const GRAVITY = 28;
 const JUMP_V = 10.5;
 const GROUND_Y = 0;
+/** 幻翼最小间距（米）：短距离连出两只无法通过 */
+const PHANTOM_MIN_GAP = 38;
 const DUCK_DURATION = 0.55;
 const FISH_HALF = new THREE.Vector3(0.35, 0.3, 0.35);
 const DAY_NIGHT_SEGMENT = 1000;
@@ -94,9 +96,11 @@ export class Game {
   private duckAmount = 0;
   private duckTimer = 0;
   private pendingDuck = false;
+  private fastFall = false;
   private lean = 0;
   private speed = 0;
   private nextSpawnZ = -34;
+  private lastPhantomDistance = -1e9;
   private readonly obstacleCenter = new THREE.Vector3();
   private rng = createSeededRandom(1);
   private pausedForScreenshot = false;
@@ -107,6 +111,8 @@ export class Game {
   private skyBillboard: THREE.Mesh | null = null;
   private skySun: THREE.Texture | null = null;
   private skyMoon: THREE.Texture | null = null;
+  private stars: THREE.Points | null = null;
+  private moonGlow: THREE.Mesh | null = null;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -129,6 +135,7 @@ export class Game {
 
     this.createScene();
     void this.player.loadSkin('textures/steve.png');
+    void Obstacle.loadPhantomSkin('textures/phantom.png');
     void FishPickup.loadTextures('textures/');
     this.best = this.loadBest();
     this.hud.showTitle(this.best);
@@ -221,12 +228,18 @@ export class Game {
 
   private render(): void {
     if (this.skyBillboard) {
+      // 跟在相机前方偏上，保证桌面/手机都在视锥内
       this.skyBillboard.position.set(
-        this.camera.position.x + 2.5,
-        this.camera.position.y + (this.night ? 2.8 : 3.2),
-        this.camera.position.z - 18,
+        this.camera.position.x + (this.night ? 0.3 : 2.2),
+        this.camera.position.y + (this.night ? 2.2 : 2.8),
+        this.camera.position.z - (this.night ? 16 : 18),
       );
       this.skyBillboard.quaternion.copy(this.camera.quaternion);
+    }
+    if (this.moonGlow && this.skyBillboard) {
+      this.moonGlow.position.copy(this.skyBillboard.position);
+      this.moonGlow.position.z += 0.05;
+      this.moonGlow.quaternion.copy(this.camera.quaternion);
     }
     this.renderer.render(this.scene, this.camera);
   }
@@ -235,26 +248,68 @@ export class Game {
     const wantNight = Math.floor(this.distance / DAY_NIGHT_SEGMENT) % 2 === 1;
     if (wantNight === this.night) return;
     this.night = wantNight;
-    this.track.setNight(wantNight);
-    const bg = wantNight ? new THREE.Color('#1a2744') : new THREE.Color('#87d4ef');
+    // 夜空近黑，白天海天蓝
+    const bg = wantNight ? new THREE.Color('#050508') : new THREE.Color('#87d4ef');
     this.scene.background = bg;
     if (this.scene.fog) {
       (this.scene.fog as THREE.Fog).color.copy(bg);
+      const fog = this.scene.fog as THREE.Fog;
+      fog.near = 28;
+      fog.far = wantNight ? 85 : 70;
     }
     if (this.hemiLight) {
-      this.hemiLight.intensity = wantNight ? 0.55 : 1.55;
-      this.hemiLight.color.set(wantNight ? '#6a7aaa' : '#fff6df');
-      this.hemiLight.groundColor.set(wantNight ? '#1a2030' : '#c4a574');
+      this.hemiLight.intensity = wantNight ? 1.25 : 1.55;
+      this.hemiLight.color.set(wantNight ? '#8a9cc8' : '#fff6df');
+      this.hemiLight.groundColor.set(wantNight ? '#2a3348' : '#c4a574');
     }
     if (this.sunLight) {
-      this.sunLight.intensity = wantNight ? 0.45 : 2.4;
-      this.sunLight.color.set(wantNight ? '#9bb0ff' : '#fff1bf');
+      this.sunLight.intensity = wantNight ? 1.1 : 2.4;
+      this.sunLight.color.set(wantNight ? '#b8c8ff' : '#fff1bf');
+      this.sunLight.castShadow = !wantNight;
     }
+    this.track.setNight(wantNight);
     if (this.skyBillboard) {
       const mat = this.skyBillboard.material as THREE.MeshBasicMaterial;
       mat.map = wantNight ? this.skyMoon : this.skySun;
+      mat.color.set(wantNight ? '#ffffff' : '#ffffff');
+      mat.opacity = 1;
+      const s = wantNight ? 2.8 : 3.4;
+      this.skyBillboard.scale.set(s, s, 1);
       mat.needsUpdate = true;
     }
+    if (this.moonGlow) {
+      this.moonGlow.visible = wantNight;
+      this.moonGlow.scale.setScalar(1.1);
+      (this.moonGlow.material as THREE.MeshBasicMaterial).opacity = 0.22;
+    }
+    if (this.stars) this.stars.visible = wantNight;
+  }
+
+  private buildStars(): void {
+    // 挂在相机前方，夜间铺一层稀疏星点
+    const count = 140;
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < count; i += 1) {
+      const a = this.rng() * Math.PI * 2;
+      const r = 40 + this.rng() * 45;
+      positions[i * 3] = Math.cos(a) * r * 0.55;
+      positions[i * 3 + 1] = 6 + this.rng() * 42;
+      positions[i * 3 + 2] = -35 - this.rng() * 40;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const mat = new THREE.PointsMaterial({
+      color: '#ffffff',
+      size: 0.35,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    });
+    this.stars = new THREE.Points(geo, mat);
+    this.stars.renderOrder = -1;
+    this.stars.visible = false;
+    this.scene.add(this.stars);
   }
 
   private loadSkyTextures(): void {
@@ -310,15 +365,36 @@ export class Game {
     this.player.group.position.set(0, GROUND_Y, 0);
     this.player.group.rotation.y = 0;
 
-    const skyGeo = new THREE.PlaneGeometry(4.2, 4.2);
+    const skyGeo = new THREE.PlaneGeometry(1, 1);
     const skyMat = new THREE.MeshBasicMaterial({
       transparent: true,
       depthWrite: false,
       fog: false,
+      color: '#ffffff',
+      alphaTest: 0.08,
     });
     this.skyBillboard = new THREE.Mesh(skyGeo, skyMat);
-    this.skyBillboard.renderOrder = -1;
+    this.skyBillboard.scale.set(3.6, 3.6, 1);
+    this.skyBillboard.renderOrder = 1;
     this.scene.add(this.skyBillboard);
+
+    // 月亮柔光晕，黑夜里更醒目（不改月亮贴图本身）
+    const glowGeo = new THREE.CircleGeometry(1, 24);
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: '#fff6c8',
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+    });
+    this.moonGlow = new THREE.Mesh(glowGeo, glowMat);
+    this.moonGlow.scale.setScalar(1.1);
+    this.moonGlow.renderOrder = 0;
+    this.moonGlow.visible = false;
+    this.scene.add(this.moonGlow);
+
+    this.buildStars();
     this.loadSkyTextures();
     this.track.setNight(false);
   }
@@ -350,14 +426,20 @@ export class Game {
       squash(this.player.visual, this.tweens, 1.12, 0.16);
     }
 
-    // One-shot duck — can start mid-jump buffer as slide on land
+    // One-shot duck — can start mid-jump as fast-fall into crouch
     if (intents.duckPressed && this.duckTimer <= 0) {
       if (!this.airborne) {
         this.duckTimer = DUCK_DURATION;
         this.audio.duckSfx();
         squash(this.player.visual, this.tweens, 0.88, 0.14);
       } else {
+        // 打断跳跃：砍掉上升速度并额外加速下砸，落地立刻蹲
         this.pendingDuck = true;
+        if (this.vy > 0) this.vy = 0;
+        this.vy -= 10;
+        this.fastFall = true;
+        this.audio.duckSfx();
+        squash(this.player.visual, this.tweens, 0.8, 0.1);
       }
     }
     if (this.pendingDuck && !this.airborne && this.duckTimer <= 0) {
@@ -374,18 +456,21 @@ export class Game {
     this.duckAmount += (duckTarget - this.duckAmount) * Math.min(1, gameDelta * 18);
 
     if (this.airborne) {
-      this.vy -= GRAVITY * gameDelta;
+      const g = this.fastFall ? GRAVITY * 2.4 : GRAVITY;
+      this.vy -= g * gameDelta;
       this.y += this.vy * gameDelta;
       if (this.y <= GROUND_Y) {
         this.y = GROUND_Y;
         this.vy = 0;
         this.airborne = false;
+        this.fastFall = false;
         this.audio.land();
         squash(this.player.visual, this.tweens, 0.9, 0.16);
-        this.shake.addTrauma(0.12);
+        this.shake.addTrauma(this.pendingDuck ? 0.2 : 0.12);
       }
       this.player.setJumpPose(1 - Math.min(1, Math.abs(this.vy) / JUMP_V));
     } else {
+      this.fastFall = false;
       this.player.resetScale();
       this.y = GROUND_Y;
     }
@@ -429,6 +514,15 @@ export class Game {
     return base + this.rng() * 4;
   }
 
+  /** 幻翼最小间距：短距离内禁止连出两只，保证可蹲可通过 */
+  private canPlacePhantom(): boolean {
+    return this.distance - this.lastPhantomDistance >= PHANTOM_MIN_GAP;
+  }
+
+  private markPhantom(): void {
+    this.lastPhantomDistance = this.distance;
+  }
+
   private spawnPattern(z: number): void {
     const progress = this.distance;
     const roll = this.rng();
@@ -436,6 +530,7 @@ export class Game {
     const primary = lanes[Math.floor(this.rng() * 3)];
     const secondaryOptions = lanes.filter((l) => l !== primary);
     const secondary = secondaryOptions[Math.floor(this.rng() * 2)];
+    let phantomUsed = false;
 
     const pickKind = (): ObstacleKind => {
       const r = this.rng();
@@ -443,7 +538,17 @@ export class Game {
       if (r < 0.3) return 'crate';
       if (r < 0.55) return 'sandcastle';
       if (r < 0.75) return 'driftwood';
+      // 幻翼：跨组合冷却 + 同组最多一只
+      if (phantomUsed || !this.canPlacePhantom()) return 'driftwood';
       return 'seagull';
+    };
+
+    const takePhantom = (lane: number, atZ: number): boolean => {
+      if (phantomUsed || !this.canPlacePhantom()) return false;
+      this.spawnObstacle('seagull', lane, atZ);
+      this.markPhantom();
+      phantomUsed = true;
+      return true;
     };
 
     // Safety window: ground pickups
@@ -454,16 +559,17 @@ export class Game {
 
     // Single obstacle + riskier pickup placement
     if (roll < 0.55 || progress < 150) {
-      const kind = pickKind();
+      let kind = pickKind();
+      if (kind === 'seagull') {
+        if (!takePhantom(primary, z)) kind = 'driftwood';
+        else {
+          this.spawnFishLine(primary, z + 0.2, this.rng() < 0.2 ? 'gold' : 'fish', 'duck');
+          return;
+        }
+      }
       this.spawnObstacle(kind, primary, z);
       const placeRoll = this.rng();
-      if (kind === 'seagull') {
-        // Phantom band 1.75–2.35: only low pickups (duck under), never jump-height
-        this.spawnFishLine(primary, z + 0.2, this.rng() < 0.2 ? 'gold' : 'fish', 'duck');
-        return;
-      }
       if (placeRoll < 0.35) {
-        // above jumpable obstacle — must jump
         this.spawnFishLine(primary, z + 0.4, this.rng() < 0.15 ? 'gold' : 'fish', 'jump');
       } else if (placeRoll < 0.7) {
         this.spawnFishLine(secondary, z + 1.5, this.rng() < 0.1 ? 'gold' : 'fish', 'ground');
@@ -474,10 +580,18 @@ export class Game {
     }
 
     // Two obstacles + mixed risk
-    const kindA = pickKind();
-    this.spawnObstacle(kindA, primary, z);
-    const kindB = progress > 350 ? pickKind() : this.rng() < 0.5 ? 'sandcastle' : 'driftwood';
-    this.spawnObstacle(kindB, secondary, z + this.rng() * 1.2);
+    let kindA = pickKind();
+    if (kindA === 'seagull') {
+      if (!takePhantom(primary, z)) kindA = 'crate';
+    } else {
+      this.spawnObstacle(kindA, primary, z);
+    }
+    let kindB = progress > 350 ? pickKind() : this.rng() < 0.5 ? 'sandcastle' : 'driftwood';
+    if (kindB === 'seagull') {
+      if (!takePhantom(secondary, z + this.rng() * 1.2)) kindB = 'sandcastle';
+    } else {
+      this.spawnObstacle(kindB, secondary, z + this.rng() * 1.2);
+    }
     const safe = lanes.find((l) => l !== primary && l !== secondary) ?? 0;
     const risk = this.rng();
     if (risk < 0.3 && kindA !== 'seagull') {
@@ -487,9 +601,8 @@ export class Game {
     } else {
       this.spawnFishLine(safe, z + 0.5, 'fish', 'ground');
     }
-    // rare: gold under phantom — duck only
-    if (progress > 200 && this.rng() < 0.12) {
-      this.spawnObstacle('seagull', safe, z + 2.2);
+    // rare gold under phantom — only if cooldown allows (never stacks a second bird)
+    if (progress > 200 && this.rng() < 0.12 && takePhantom(safe, z + 2.2)) {
       this.spawnFishLine(safe, z + 2.2, 'gold', 'duck');
     }
   }
@@ -666,9 +779,11 @@ export class Game {
     this.duckAmount = 0;
     this.duckTimer = 0;
     this.pendingDuck = false;
+    this.fastFall = false;
     this.lean = 0;
     this.speed = this.tuning.baseSpeed;
     this.nextSpawnZ = -34;
+    this.lastPhantomDistance = -1e9;
     this.hitstop.reset();
     this.shake.reset();
     this.tweens.clear();
@@ -709,6 +824,13 @@ export class Game {
       seed: (value: number) => {
         this.rng = createSeededRandom(value);
         this.bursts.setSeed(value + 91);
+      },
+      setNight: (night: boolean) => {
+        this.night = !night;
+        this.distance = night ? DAY_NIGHT_SEGMENT : 0;
+        this.applyDayNight();
+        this.render();
+        this.publishDiagnostics();
       },
       addPickups: (n: number) => {
         for (let i = 0; i < n; i += 1) {

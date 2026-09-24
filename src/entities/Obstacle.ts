@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { makeSkinBox } from './skinUvs';
 
 export type ObstacleKind = 'crate' | 'sandcastle' | 'driftwood' | 'seagull';
 
@@ -57,6 +58,28 @@ export class Obstacle {
   private builtKind: ObstacleKind | null = null;
   private flap = 0;
   private static readonly matCache = new Map<string, THREE.MeshStandardMaterial>();
+  private static phantomTex: THREE.Texture | null = null;
+  private static phantomLoad: Promise<void> | null = null;
+
+  /** 加载幻翼皮肤（用户提供的 phantom.tga → public/textures/phantom.png） */
+  static loadPhantomSkin(url = 'textures/phantom.png'): Promise<void> {
+    if (Obstacle.phantomTex) return Promise.resolve();
+    if (Obstacle.phantomLoad) return Obstacle.phantomLoad;
+    const loader = new THREE.TextureLoader();
+    Obstacle.phantomLoad = loader
+      .loadAsync(url)
+      .then((tex) => {
+        tex.magFilter = THREE.NearestFilter;
+        tex.minFilter = THREE.NearestFilter;
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.generateMipmaps = false;
+        Obstacle.phantomTex = tex;
+      })
+      .catch(() => {
+        Obstacle.phantomLoad = null;
+      });
+    return Obstacle.phantomLoad;
+  }
 
   constructor() {
     this.group.visible = false;
@@ -136,6 +159,21 @@ export class Obstacle {
       const prev = this.built.get(this.builtKind);
       if (prev) prev.visible = false;
     }
+    // 幻翼：皮肤就绪后重建，保证贴图生效
+    if (kind === 'seagull' && Obstacle.phantomTex && !this.built.has('seagull')) {
+      // first build below
+    } else if (kind === 'seagull' && !Obstacle.phantomTex) {
+      void Obstacle.loadPhantomSkin().then(() => {
+        if (this.builtKind !== 'seagull') return;
+        const old = this.built.get('seagull');
+        if (old) {
+          this.group.remove(old);
+          this.built.delete('seagull');
+          this.builtKind = null;
+        }
+        this.showKind('seagull');
+      });
+    }
     let visual = this.built.get(kind);
     if (!visual) {
       visual = this.buildMesh(kind);
@@ -188,57 +226,64 @@ export class Obstacle {
       root.add(log, ring, knot);
       return root;
     }
-    // ── Phantom — flies high enough that sneak visuals never clip.
+    // ── Phantom with provided Minecraft skin (phantom.tga → phantom.png)
+    // Official-ish cuboid UVs on 64×64; 16 px = 1 block. Flies at y≈2.05.
     const y = 2.05;
+    const tex = Obstacle.phantomTex;
+
+    if (tex) {
+      // Head 7×4×5 @ (0,0)
+      const head = makeSkinBox(tex, 7, 4, 5, 0, 0);
+      head.position.set(0, y + 0.05, -0.35);
+      root.add(head);
+
+      // Body 8×2×16 @ (0,10) — long flat torso
+      const body = makeSkinBox(tex, 8, 2, 16, 0, 10);
+      body.position.set(0, y, 0.1);
+      root.add(body);
+
+      // Tail 3×2×8 @ (34,12)
+      const tail = makeSkinBox(tex, 3, 2, 8, 34, 12);
+      tail.position.set(0, y - 0.02, 0.55);
+      root.add(tail);
+
+      // Wings 10×2×16 @ (20,0) — flap groups at shoulder
+      for (const side of [-1, 1]) {
+        const wing = new THREE.Group();
+        wing.position.set(side * 0.18, y + 0.02, 0.05);
+        wing.userData.flapper = true;
+        wing.userData.side = side;
+        const wingMesh = makeSkinBox(tex, 10, 2, 16, 20, 0);
+        wingMesh.position.set(side * 0.55, 0, 0.1);
+        wing.add(wingMesh);
+        // Outer membrane segment
+        const wing2 = makeSkinBox(tex, 10, 2, 16, 20, 0);
+        wing2.position.set(side * 1.35, 0, 0.15);
+        wing2.rotation.y = side * 0.25;
+        wing.add(wing2);
+        root.add(wing);
+      }
+      return root;
+    }
+
+    // Fallback solid colors if skin not yet loaded
     const bone = '#c4b090';
     const membrane = '#3d4f9a';
-    const membraneDark = '#2e3d7a';
     const flesh = '#8a6a4a';
 
     const torso = box(0.28, 0.18, 0.55, flesh);
     torso.position.set(0, y, 0.05);
     const head = box(0.24, 0.16, 0.28, bone);
     head.position.set(0, y + 0.02, -0.32);
-    const snout = box(0.16, 0.1, 0.16, flesh);
-    snout.position.set(0, y - 0.02, -0.48);
-    root.add(torso, head, snout);
-    for (const side of [-1, 1]) {
-      const eye = box(0.06, 0.06, 0.04, '#39e07a');
-      eye.position.set(side * 0.08, y + 0.05, -0.46);
-      root.add(eye);
-    }
-    const tail = box(0.1, 0.08, 0.4, bone);
-    tail.position.set(0, y - 0.02, 0.38);
-    root.add(tail);
-
+    root.add(torso, head);
     for (const side of [-1, 1]) {
       const wing = new THREE.Group();
       wing.position.set(side * 0.12, y + 0.04, 0.05);
       wing.userData.flapper = true;
       wing.userData.side = side;
-
-      const inner = box(0.7, 0.05, 0.45, membrane);
-      inner.position.set(side * 0.4, 0, 0);
-      wing.add(inner);
-
-      const outer = box(0.7, 0.05, 0.35, membraneDark);
-      outer.position.set(side * 0.95, 0, 0.1);
-      outer.rotation.y = side * 0.35;
-      wing.add(outer);
-
-      const tip = box(0.4, 0.04, 0.22, membrane);
-      tip.position.set(side * 1.35, 0, 0.25);
-      tip.rotation.y = side * 0.55;
-      wing.add(tip);
-
-      const sparA = box(0.75, 0.06, 0.05, bone);
-      sparA.position.set(side * 0.45, 0.03, -0.05);
-      wing.add(sparA);
-      const sparB = box(0.65, 0.05, 0.05, bone);
-      sparB.position.set(side * 1.0, 0.03, 0.12);
-      sparB.rotation.y = side * 0.4;
-      wing.add(sparB);
-
+      const mem = box(1.4, 0.05, 0.5, membrane);
+      mem.position.set(side * 0.7, 0, 0.05);
+      wing.add(mem);
       root.add(wing);
     }
     return root;

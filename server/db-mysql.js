@@ -1,5 +1,5 @@
 import mysql from 'mysql2/promise';
-import { rankRows } from './db-shape.js';
+import { dayStart, rankRows, toSqlDateTime } from './db-shape.js';
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS users (
@@ -149,15 +149,24 @@ export async function createMysqlDb(url) {
   }
 
   async function topBy(column, limit = 50) {
-    const col =
-      column === 'combo' ? 'best_combo' : column === 'runs' ? 'run_count' : 'best_distance';
+    // 每日 24:00 自然切换：只统计「今天」的 runs，跨日榜面自动清空
+    const since = toSqlDateTime(dayStart());
+    const agg =
+      column === 'combo'
+        ? 'MAX(r.max_combo)'
+        : column === 'runs'
+          ? 'COUNT(r.id)'
+          : 'MAX(r.distance)';
     const [rows] = await pool.query(
-      `SELECT username, avatar_url, ${col} AS value
-       FROM users
-       WHERE ${col} > 0
-       ORDER BY ${col} DESC, updated_at ASC
+      `SELECT u.username, u.avatar_url, ${agg} AS value
+       FROM runs r
+       JOIN users u ON u.id = r.user_id
+       WHERE r.created_at >= ?
+       GROUP BY u.id, u.username, u.avatar_url
+       HAVING value > 0
+       ORDER BY value DESC, MIN(r.created_at) ASC
        LIMIT ?`,
-      [Number(limit)],
+      [since, Number(limit)],
     );
     return rankRows(rows);
   }
