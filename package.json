@@ -1,7 +1,7 @@
 {
   "name": "running-steve",
-  "version": "3.5.1",
-  "description": "phantom rebuilt from Bedrock geo + tga skin",
+  "version": "3.5.2",
+  "description": "redis cache + first-load static + phantom faces player",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "express": "^5.2.1",
+    "ioredis": "^6.0.0",
     "mysql2": "^3.14.0",
     "three": "^0.184.0"
   },

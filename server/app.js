@@ -1,5 +1,5 @@
 import express from 'express';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
 import { toPublicUser } from './db.js';
@@ -29,15 +29,14 @@ export function createApp(db, options = {}) {
     redirectUri = '',
     root = join(import.meta.dirname, '..'),
     runSecret = process.env.SESSION_SECRET || 'dev-session-secret-change-me',
+    cache = null,
   } = options;
+  const memOauth = new Map();
+  const memRunTokens = new Map();
+  const memScoreStamps = new Map();
 
   const app = express();
   app.use(express.json({ limit: '16kb' }));
-
-  const oauthStates = new Map();
-  const scoreStamps = new Map();
-  /** token -> { userId, runId, exp, used } */
-  const runTokens = new Map();
 
   function getCookie(req, name) {
     const header = req.headers.cookie || '';
@@ -74,23 +73,7 @@ export function createApp(db, options = {}) {
     return createHmac('sha256', runSecret).update(`${userId}.${runId}.${exp}`).digest('base64url');
   }
 
-  function issueRunToken(userId, runId) {
-    const exp = Date.now() + RUN_TTL_MS;
-    const sig = signRun(userId, runId, exp);
-    const token = `${userId}.${runId}.${exp}.${sig}`;
-    runTokens.set(token, { userId, runId, exp, used: false });
-    // opportunistic GC
-    if (runTokens.size > 5000) {
-      for (const [k, v] of runTokens) {
-        if (v.used || v.exp < Date.now()) runTokens.delete(k);
-      }
-    }
-    return token;
-  }
-
-  function peekRunToken(token, userId) {
-    const entry = runTokens.get(token);
-    if (!entry || entry.used || entry.exp < Date.now()) return null;
+  function verifyRunToken(token, userId) {
     const parts = String(token).split('.');
     if (parts.length !== 4) return null;
     const [uid, rid, exp, sig] = parts;
@@ -99,15 +82,53 @@ export function createApp(db, options = {}) {
     const b = Buffer.from(expected);
     if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
     if (Number(uid) !== Number(userId)) return null;
-    return entry;
+    if (Number(exp) < Date.now()) return null;
+    return { userId: Number(uid), runId: Number(rid), exp: Number(exp) };
   }
 
-  function consumeRunToken(token, userId) {
-    const entry = peekRunToken(token, userId);
-    if (!entry) return null;
-    entry.used = true;
-    runTokens.delete(token);
-    return entry;
+  async function issueRunToken(userId, runId) {
+    const exp = Date.now() + RUN_TTL_MS;
+    const sig = signRun(userId, runId, exp);
+    const token = `${userId}.${runId}.${exp}.${sig}`;
+    const payload = JSON.stringify({ userId, runId, exp, used: false });
+    if (cache) await cache.set(`run:${token}`, payload, Math.ceil(RUN_TTL_MS / 1000));
+    else memRunTokens.set(token, JSON.parse(payload));
+    return token;
+  }
+
+  async function peekRunToken(token, userId) {
+    const signed = verifyRunToken(token, userId);
+    if (!signed) return null;
+    if (cache) {
+      const raw = await cache.get(`run:${token}`);
+      if (!raw) return null;
+      return signed;
+    }
+    const entry = memRunTokens.get(token);
+    if (!entry || entry.used) return null;
+    return signed;
+  }
+
+  async function consumeRunToken(token, userId) {
+    const signed = await peekRunToken(token, userId);
+    if (!signed) return null;
+    if (cache) await cache.take(`run:${token}`);
+    else {
+      const e = memRunTokens.get(token);
+      if (e) e.used = true;
+      memRunTokens.delete(token);
+    }
+    return signed;
+  }
+
+  async function rateLimit(userId) {
+    const key = `cd:user:${userId}`;
+    if (cache) return cache.acquire(key, 3);
+    const last = memScoreStamps.get(key) || 0;
+    const now = Date.now();
+    if (now - last < SCORE_COOLDOWN_MS) return false;
+    memScoreStamps.set(key, now);
+    return true;
   }
 
   function plausible({ distance, maxCombo, durationMs, cookies, cakes }) {
@@ -127,25 +148,30 @@ export function createApp(db, options = {}) {
     res.json({ user: toPublicUser(user) });
   });
 
-  app.get('/auth/login', (req, res) => {
+  app.get('/auth/login', async (req, res) => {
     if (!clientId) {
       res.status(503).json({ error: 'oauth_not_configured' });
       return;
     }
     const returnTo = safeReturnTo(req.query.returnTo);
     const state = randomBytes(16).toString('base64url');
-    oauthStates.set(state, { returnTo, exp: Date.now() + 10 * 60 * 1000 });
-    for (const [k, v] of oauthStates) {
-      if (v.exp < Date.now()) oauthStates.delete(k);
-    }
+    const saved = { returnTo, exp: Date.now() + 10 * 60 * 1000 };
+    if (cache) await cache.set(`oauth:${state}`, JSON.stringify(saved), 600);
+    else memOauth.set(state, saved);
     res.redirect(buildAuthorizeUrl({ clientId, redirectUri, state }));
   });
 
   app.get('/auth/callback', async (req, res) => {
     const code = typeof req.query.code === 'string' ? req.query.code : '';
     const state = typeof req.query.state === 'string' ? req.query.state : '';
-    const saved = oauthStates.get(state);
-    oauthStates.delete(state);
+    let saved = null;
+    if (cache) {
+      const raw = await cache.take(`oauth:${state}`);
+      if (raw) saved = JSON.parse(raw);
+    } else {
+      saved = memOauth.get(state) || null;
+      memOauth.delete(state);
+    }
     const returnTo = saved?.returnTo || '/';
     if (!code || !saved) {
       res.redirect('/?authError=1');
@@ -176,7 +202,7 @@ export function createApp(db, options = {}) {
       return;
     }
     const runId = Date.now();
-    const token = issueRunToken(Number(user.id), runId);
+    const token = await issueRunToken(Number(user.id), runId);
     res.json({ runId, token });
   });
 
@@ -202,27 +228,22 @@ export function createApp(db, options = {}) {
       return;
     }
     const runToken = typeof req.body?.runToken === 'string' ? req.body.runToken : '';
-    if (!peekRunToken(runToken, user.id)) {
+    if (!(await peekRunToken(runToken, user.id))) {
       res.status(403).json({ error: 'invalid_run_token' });
       return;
     }
     if (!plausible({ distance, maxCombo, durationMs, cookies, cakes })) {
-      // do not burn the token — allow a corrected resubmit
       res.status(403).json({ error: 'implausible_run' });
       return;
     }
     const failReason =
       typeof req.body?.failReason === 'string' ? req.body.failReason.slice(0, 120) : null;
 
-    const key = `u:${user.id}`;
-    const now = Date.now();
-    const last = scoreStamps.get(key) || 0;
-    if (now - last < SCORE_COOLDOWN_MS) {
+    if (!(await rateLimit(Number(user.id)))) {
       res.status(429).json({ error: 'too_many_requests' });
       return;
     }
-    scoreStamps.set(key, now);
-    consumeRunToken(runToken, user.id);
+    await consumeRunToken(runToken, user.id);
 
     const result = await db.mergeBest(Number(user.id), {
       distance,
@@ -232,18 +253,33 @@ export function createApp(db, options = {}) {
       cakes,
       failReason,
     });
+    if (cache) {
+      await cache.del('lb:v1:10');
+      await cache.del('lb:v1:50');
+    }
     res.json(result);
   });
 
   app.get('/api/leaderboard', async (req, res) => {
     const raw = Number(req.query.limit);
     const limit = Number.isFinite(raw) ? Math.min(50, Math.max(1, Math.floor(raw))) : 50;
+    if (cache) {
+      const hit = await cache.get(`lb:v1:${limit}`);
+      if (hit) {
+        res.setHeader('X-Cache', 'hit');
+        res.json(JSON.parse(hit));
+        return;
+      }
+    }
     const [distance, combo, runs] = await Promise.all([
       db.topBy('distance', limit),
       db.topBy('combo', limit),
       db.topBy('runs', limit),
     ]);
-    res.json({ distance, combo, runs });
+    const payload = { distance, combo, runs };
+    if (cache) await cache.set(`lb:v1:${limit}`, JSON.stringify(payload), 3);
+    res.setHeader('X-Cache', 'miss');
+    res.json(payload);
   });
 
   app.get('/api/runs', async (req, res) => {
@@ -269,12 +305,26 @@ export function createApp(db, options = {}) {
 
   const dist = join(root, 'dist');
   if (existsSync(join(dist, 'index.html'))) {
-    app.use(express.static(dist));
+    // Long-cache hashed assets; HTML always revalidate. Helps repeat visits a lot.
+    app.use(
+      express.static(dist, {
+        setHeaders(res, filePath) {
+          if (/[.-][A-Za-z0-9_-]{8,}\.(js|css|map)$/.test(filePath)) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          } else if (/\.(png|jpg|jpeg|gif|webp|mp3|woff2?)$/i.test(filePath)) {
+            res.setHeader('Cache-Control', 'public, max-age=604800');
+          } else if (/index\.html$/i.test(filePath)) {
+            res.setHeader('Cache-Control', 'no-cache');
+          }
+        },
+      }),
+    );
     app.use((req, res, next) => {
       if (req.method !== 'GET' || req.path.startsWith('/api') || req.path.startsWith('/auth')) {
         next();
         return;
       }
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(join(dist, 'index.html'));
     });
   }

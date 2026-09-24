@@ -323,8 +323,7 @@ export class Obstacle {
       tip.add(tipMesh);
     }
 
-    // geo faces -Z; flip to +Z so head leads toward the player
-    root.rotation.y = Math.PI;
+    // place() already maps head toward +Z (player / chase cam). Do not flip Y.
     return root;
   }
 
