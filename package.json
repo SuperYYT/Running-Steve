@@ -1,6 +1,6 @@
 {
   "name": "running-steve",
-  "version": "3.5.2",
+  "version": "3.5.3",
   "description": "redis cache + first-load static + phantom faces player",
   "private": true,
   "type": "module",

@@ -64,7 +64,7 @@ export class Track {
         dash.position.z -= DASH_WRAP;
       }
     }
-    if (this.night) this.syncLampLights();
+    if (this.night) this.syncLampLights(true);
     return dz;
   }
 
@@ -92,12 +92,13 @@ export class Track {
     this.syncLampLights();
   }
 
-  /** 池化点光吸附最近路灯；节流，避免每帧分配 */
-  syncLampLights(force = false): void {
-    if (!this.night || this.lampLights.length === 0) return;
-    const now = this.syncClock;
-    if (!force && now - this.lastLightSync < 0.2) return;
-    this.lastLightSync = now;
+  /** 点光每帧贴住路灯（装饰已滚动），避免 0.2s 节流造成的“跟不上” */
+  syncLampLights(_force = false): void {
+    if (this.lampLights.length === 0) return;
+    if (!this.night) {
+      for (const light of this.lampLights) light.visible = false;
+      return;
+    }
     let best0: THREE.Object3D | null = null;
     let best1: THREE.Object3D | null = null;
     let d0 = Infinity;
@@ -125,13 +126,13 @@ export class Track {
       }
       light.visible = true;
       light.position.set(src.position.x, 1.7, src.position.z);
+      light.intensity = 16;
     }
   }
 
   private readonly lampLights: THREE.PointLight[] = [];
   private night = false;
   private syncClock = 0;
-  private lastLightSync = -1;
   private readonly matKeyCache = new Map<string, THREE.MeshStandardMaterial>();
   private readonly glowGeo = new THREE.CircleGeometry(1.6, 20);
   private readonly lampBoxGeo = new THREE.BoxGeometry(0.5, 0.4, 0.5);

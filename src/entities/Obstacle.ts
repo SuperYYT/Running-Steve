@@ -291,6 +291,17 @@ export class Obstacle {
       const local = place([-4, 22, -12], [7, 3, 5]).sub(bonePivot([0, 23, -7]));
       mesh.position.copy(local);
       headBone.add(mesh);
+      // Minecraft-style green eyes on the face (front = toward player after map)
+      const eyeMat = new THREE.MeshBasicMaterial({ color: '#39e07a' });
+      for (const sx of [-1, 1]) {
+        const eye = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.04), eyeMat);
+        eye.position.set(
+          local.x + sx * 0.18,
+          local.y + 0.02,
+          local.z + 0.22,
+        );
+        headBone.add(eye);
+      }
     }
 
     // tail + tip

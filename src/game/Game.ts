@@ -106,6 +106,7 @@ export class Game {
   private pausedForScreenshot = false;
   private reducedMotion = false;
   private night = false;
+  private nightBlend = 0;
   private hemiLight: THREE.HemisphereLight | null = null;
   private sunLight: THREE.DirectionalLight | null = null;
   private skyBillboard: THREE.Mesh | null = null;
@@ -245,44 +246,58 @@ export class Game {
   }
 
   private applyDayNight(): void {
-    const wantNight = Math.floor(this.distance / DAY_NIGHT_SEGMENT) % 2 === 1;
-    if (wantNight === this.night) return;
-    this.night = wantNight;
-    // 夜空近黑，白天海天蓝
-    const bg = wantNight ? new THREE.Color('#050508') : new THREE.Color('#87d4ef');
+    // 0 = day, 1 = night; smoothstep across ~120m at each 1000m boundary
+    const phase = (this.distance / DAY_NIGHT_SEGMENT) % 2;
+    const fade = 0.12;
+    let target = 0;
+    if (phase < 1 - fade) target = 0;
+    else if (phase < 1) target = (phase - (1 - fade)) / fade;
+    else if (phase < 2 - fade) target = 1;
+    else target = 1 - (phase - (2 - fade)) / fade;
+    target = target * target * (3 - 2 * target);
+    // ease over ~0.6s of game distance progress
+    const k = 0.06;
+    this.nightBlend += (target - this.nightBlend) * k;
+    if (Math.abs(target - this.nightBlend) < 0.002) this.nightBlend = target;
+    const n = this.nightBlend;
+    const wantNight = n > 0.45;
+    if (wantNight !== this.night) {
+      this.night = wantNight;
+      this.track.setNight(wantNight);
+      if (this.stars) this.stars.visible = wantNight;
+      if (this.moonGlow) this.moonGlow.visible = wantNight;
+    }
+
+    const bgDay = new THREE.Color('#87d4ef');
+    const bgNight = new THREE.Color('#050508');
+    const bg = bgDay.clone().lerp(bgNight, n);
     this.scene.background = bg;
     if (this.scene.fog) {
       (this.scene.fog as THREE.Fog).color.copy(bg);
       const fog = this.scene.fog as THREE.Fog;
-      fog.near = 28;
-      fog.far = wantNight ? 85 : 70;
+      fog.far = 70 + n * 15;
     }
     if (this.hemiLight) {
-      this.hemiLight.intensity = wantNight ? 1.25 : 1.55;
-      this.hemiLight.color.set(wantNight ? '#8a9cc8' : '#fff6df');
-      this.hemiLight.groundColor.set(wantNight ? '#2a3348' : '#c4a574');
+      this.hemiLight.intensity = 1.55 - n * 0.4;
+      this.hemiLight.color.set('#fff6df').lerp(new THREE.Color('#8a9cc8'), n);
+      this.hemiLight.groundColor.set('#c4a574').lerp(new THREE.Color('#2a3348'), n);
     }
     if (this.sunLight) {
-      this.sunLight.intensity = wantNight ? 1.1 : 2.4;
-      this.sunLight.color.set(wantNight ? '#b8c8ff' : '#fff1bf');
-      this.sunLight.castShadow = !wantNight;
+      this.sunLight.intensity = 2.4 - n * 1.35;
+      this.sunLight.color.set('#fff1bf').lerp(new THREE.Color('#b8c8ff'), n);
+      this.sunLight.castShadow = n < 0.5;
     }
-    this.track.setNight(wantNight);
     if (this.skyBillboard) {
       const mat = this.skyBillboard.material as THREE.MeshBasicMaterial;
-      mat.map = wantNight ? this.skyMoon : this.skySun;
-      mat.color.set(wantNight ? '#ffffff' : '#ffffff');
+      mat.map = this.night ? this.skyMoon : this.skySun;
       mat.opacity = 1;
-      const s = wantNight ? 2.8 : 3.4;
+      const s = 3.4 - n * 0.6;
       this.skyBillboard.scale.set(s, s, 1);
       mat.needsUpdate = true;
     }
     if (this.moonGlow) {
-      this.moonGlow.visible = wantNight;
-      this.moonGlow.scale.setScalar(1.1);
-      (this.moonGlow.material as THREE.MeshBasicMaterial).opacity = 0.22;
+      (this.moonGlow.material as THREE.MeshBasicMaterial).opacity = 0.22 * n;
     }
-    if (this.stars) this.stars.visible = wantNight;
   }
 
   private buildStars(): void {
