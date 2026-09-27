@@ -644,9 +644,9 @@ export class Game {
       const f = this.fish.find((item) => !item.active && !item.group.visible);
       if (!f) return;
       const t = count === 1 ? 0.5 : i / (count - 1);
-      let height = 0.55 + Math.sin(t * Math.PI) * 0.22;
-      if (kind === 'gold') height = Math.max(height, 0.85);
-      if (placement === 'duck') height = 0.35;
+      let height = 0.65 + Math.sin(t * Math.PI) * 0.22;
+      if (kind === 'gold') height = Math.max(height, 0.95);
+      if (placement === 'duck') height = 0.42;
       f.spawn(kind, lane, z - i * spacing, height);
     }
   }
@@ -665,7 +665,7 @@ export class Game {
       if (!f) return;
       const t = samples[Math.min(i, samples.length - 1)];
       const feet = JUMP_V * t - 0.5 * GRAVITY * t * t;
-      const height = Math.min(1.55, Math.max(0.85, feet + 0.7));
+      const height = Math.min(1.62, Math.max(0.95, feet + 0.78));
       const z = z0 + 1.0 - t * speedRef;
       f.spawn(kind, lane, z, height);
     }

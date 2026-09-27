@@ -21,7 +21,7 @@ export class MusicPlayer {
   private readonly audio = new Audio();
   private order: number[] = [];
   private cursor = 0;
-  private started = false;
+  private wantPlay = false;
 
   constructor() {
     this.audio.preload = 'metadata';
@@ -41,53 +41,61 @@ export class MusicPlayer {
     this.cursor = 0;
   }
 
-  private playIndex(i: number): void {
+  private async playIndex(i: number): Promise<void> {
     const t = PLAYLIST[i];
     this.audio.src = `audio/bgm/${t.file}`;
-    void this.audio.play().catch(() => {
-      // autoplay blocked until gesture
-    });
+    try {
+      await this.audio.play();
+      this.wantPlay = true;
+    } catch {
+      this.wantPlay = true; // retry on next gesture
+    }
     this.render();
   }
 
   next(): void {
     this.cursor += 1;
-    if (this.cursor >= this.order.length) {
-      this.shuffle();
-    }
-    this.playIndex(this.order[this.cursor]);
+    if (this.cursor >= this.order.length) this.shuffle();
+    void this.playIndex(this.order[this.cursor]);
   }
 
   private bind(): void {
-    document.querySelector('#music-toggle')?.addEventListener('click', (e) => {
+    const stop = (e: Event) => {
+      // keep window-level audio unlock working — only stop game start
       e.preventDefault();
       e.stopPropagation();
-      if (!this.started) {
-        this.started = true;
-        this.playIndex(this.order[this.cursor]);
-        return;
+    };
+    document.querySelector('#music-toggle')?.addEventListener('click', (e) => {
+      stop(e);
+      if (this.audio.paused) {
+        if (!this.audio.src) void this.playIndex(this.order[this.cursor]);
+        else void this.audio.play().catch(() => undefined);
+      } else {
+        this.audio.pause();
+        this.wantPlay = false;
       }
-      if (this.audio.paused) void this.audio.play();
-      else this.audio.pause();
       this.render();
     });
     document.querySelector('#music-next')?.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this.started = true;
+      stop(e);
       this.next();
     });
-    // first user gesture unlocks / starts music if idle
+    // Collapse / expand on mobile so it does not cover the leaderboard
+    document.querySelector('#music-expand')?.addEventListener('click', (e) => {
+      stop(e);
+      document.querySelector('#music-player')?.classList.toggle('expanded');
+    });
+
+    // First user gesture starts music (browsers block autoplay)
     const kick = () => {
-      if (!this.started) {
-        this.started = true;
-        this.playIndex(this.order[this.cursor]);
+      if (this.audio.paused && this.wantPlay !== false) {
+        void this.playIndex(this.order[this.cursor]);
       }
     };
-    window.addEventListener('pointerdown', kick, { once: true });
+    window.addEventListener('pointerdown', kick, { once: true, capture: true });
+    window.addEventListener('keydown', kick, { once: true, capture: true });
   }
 
-  /** Hide widget + optionally duck music during play */
   setScreen(screen: string): void {
     const el = document.querySelector<HTMLElement>('#music-player');
     if (el) el.hidden = screen === 'playing' || screen === 'paused';
@@ -102,7 +110,7 @@ export class MusicPlayer {
     const i = this.order[this.cursor] ?? 0;
     if (title) title.textContent = PLAYLIST[i]?.title ?? '背景音乐';
     if (btn) {
-      const playing = !this.audio.paused && this.started;
+      const playing = !this.audio.paused && !!this.audio.src;
       btn.textContent = playing ? '❚❚' : '▶';
       btn.setAttribute('aria-label', playing ? '暂停音乐' : '播放音乐');
     }

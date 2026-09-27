@@ -227,6 +227,6 @@ const UPPER_MID = 3 / 16;
 const LOWER_MID = 3 / 16;
 const SHOULDER_Y = 12 / 16;
 const HEAD_Y = 16 / 16;
-// MC puts arm centers at ±6px (touching torso). +0.45px gap kills side z-fight.
-const ARM_X = 6.45 / 16;
-const LEG_X = 2.35 / 16;
+// Small gap from torso (MC is ±6px touch). 6.15 keeps limbs attached-looking.
+const ARM_X = 6.12 / 16;
+const LEG_X = 2.12 / 16;

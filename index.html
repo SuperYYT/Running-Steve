@@ -101,12 +101,15 @@
       </section>
 
       <aside id="music-player" aria-label="背景音乐">
-        <button type="button" id="music-toggle" aria-label="播放音乐">▶</button>
-        <div class="music-meta">
-          <span class="music-label">BGM</span>
-          <strong id="music-title">背景音乐</strong>
+        <button type="button" id="music-expand" class="music-icon" aria-label="展开播放器">♪</button>
+        <div class="music-body">
+          <button type="button" id="music-toggle" aria-label="播放音乐">▶</button>
+          <div class="music-meta">
+            <span class="music-label">BGM</span>
+            <strong id="music-title">背景音乐</strong>
+          </div>
+          <button type="button" id="music-next" aria-label="下一首">⏭</button>
         </div>
-        <button type="button" id="music-next" aria-label="下一首">⏭</button>
       </aside>
 
       <section id="pause-panel" class="panel" hidden>

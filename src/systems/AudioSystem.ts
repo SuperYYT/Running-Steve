@@ -13,8 +13,9 @@ export class AudioSystem {
     const unlock = () => {
       void this.unlock();
     };
-    window.addEventListener('pointerdown', unlock, { once: true });
-    window.addEventListener('keydown', unlock, { once: true });
+    // capture + once so UI stopPropagation cannot block SFX unlock
+    window.addEventListener('pointerdown', unlock, { once: true, capture: true });
+    window.addEventListener('keydown', unlock, { once: true, capture: true });
   }
 
   async unlock(): Promise<void> {
