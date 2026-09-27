@@ -75,7 +75,13 @@ export function makeSkinBox(
   const geo = new THREE.BoxGeometry(pw / 16, ph / 16, pd / 16);
   setMinecraftBoxUVs(geo, u, v, pw, ph, pd);
   // Lambert keeps skin colors flat/readable under sun (Standard washes arms orange)
-  const mat = new THREE.MeshLambertMaterial({ map: texture });
+  const mat = new THREE.MeshLambertMaterial({
+    map: texture,
+    // avoid coplanar z-fight where arm/leg boxes touch the torso
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
+  });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
