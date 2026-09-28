@@ -19,20 +19,19 @@ export class CameraRig {
   }
 
   update(delta: number, target: THREE.Vector3, lag: number, lean: number): void {
-    // Follow less of the lane x so quick lane snaps don't whip the camera
+    // Follow most of the lane X so the camera tracks side changes
     this.desiredPosition.set(
-      target.x * 0.28,
+      target.x * 0.72,
       this.baseOffset.y + target.y * 0.18,
       this.baseOffset.z,
     );
-    // Keep a little horizontal trail but damp harder than before
     const factor = 1 - Math.exp(-delta / Math.max(0.001, lag));
-    const lookFactor = 1 - Math.exp(-delta / Math.max(0.001, lag * 1.35));
+    const lookFactor = 1 - Math.exp(-delta / Math.max(0.001, lag * 1.1));
     this.camera.position.x += (this.desiredPosition.x - this.camera.position.x) * factor;
     this.camera.position.y += (this.desiredPosition.y - this.camera.position.y) * factor;
     this.camera.position.z += (this.desiredPosition.z - this.camera.position.z) * factor;
 
-    const lookX = target.x * 0.22;
+    const lookX = target.x * 0.55;
     const lookY = 1.05 + target.y * 0.12;
     this.lookTarget.x += (lookX - this.lookTarget.x) * lookFactor;
     this.lookTarget.y += (lookY - this.lookTarget.y) * lookFactor;

@@ -53,8 +53,8 @@ export class SteveRunner {
   }
 
   setJumpPose(_t: number): void {
-    this.armL.rotation.set(-0.5, 0, 0.2);
-    this.armR.rotation.set(-0.5, 0, -0.2);
+    this.armL.rotation.set(-0.5, 0, 0);
+    this.armR.rotation.set(-0.5, 0, 0);
     this.foreL.rotation.x = -0.3;
     this.foreR.rotation.x = -0.3;
     this.legL.rotation.x = 0.55;
@@ -73,8 +73,8 @@ export class SteveRunner {
     this.bodyGroup.position.set(0, LEG, 0);
     this.headGroup.position.set(0, HEAD_Y, 0);
     this.headGroup.rotation.set(0, 0, 0);
-    this.armL.rotation.set(0, 0, 0.1);
-    this.armR.rotation.set(0, 0, -0.1);
+    this.armL.rotation.set(0, 0, 0);
+    this.armR.rotation.set(0, 0, 0);
     this.foreL.rotation.set(0, 0, 0);
     this.foreR.rotation.set(0, 0, 0);
     this.duckAmount = 0;
@@ -116,8 +116,8 @@ export class SteveRunner {
     // Straight arms — hang with the torso lean, light run swing only
     this.armL.rotation.x = swing2 * 0.55 * runAmp;
     this.armR.rotation.x = swing * 0.55 * runAmp;
-    this.armL.rotation.z = 0.1;
-    this.armR.rotation.z = -0.1;
+    this.armL.rotation.z = 0;
+    this.armR.rotation.z = 0;
     this.foreL.rotation.x = 0;
     this.foreR.rotation.x = 0;
   }
@@ -132,8 +132,8 @@ export class SteveRunner {
     this.headGroup.rotation.x = 0.38;
     this.legL.rotation.x = 0.12;
     this.legR.rotation.x = 0.12;
-    this.armL.rotation.set(0, 0, 0.1);
-    this.armR.rotation.set(0, 0, -0.1);
+    this.armL.rotation.set(0, 0, 0);
+    this.armR.rotation.set(0, 0, 0);
     this.foreL.rotation.x = 0;
     this.foreR.rotation.x = 0;
   }

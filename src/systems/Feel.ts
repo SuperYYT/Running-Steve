@@ -108,17 +108,20 @@ export class Hitstop {
 }
 
 export function squash(target: THREE.Object3D, tweens: TweenManager, squashY = 0.85, durationSec = 0.18): void {
-  const startXZ = 1 / Math.sqrt(squashY);
+  // Preserve base scale (Steve visual is 1.1) — never snap to 1
+  const base = target.scale.y || 1.1;
+  const startXZ = (1 / Math.sqrt(squashY)) * base;
+  const startY = squashY * base;
   tweens.tween(
     durationSec,
     (t) => {
-      const y = squashY + (1 - squashY) * t;
-      const xz = startXZ + (1 - startXZ) * t;
+      const y = startY + (base - startY) * t;
+      const xz = startXZ + (base - startXZ) * t;
       target.scale.set(xz, y, xz);
     },
     easeOutBack,
     () => {
-      target.scale.set(1, 1, 1);
+      target.scale.set(base, base, base);
     },
   );
 }

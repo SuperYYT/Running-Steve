@@ -25,7 +25,7 @@ export class MusicPlayer {
 
   constructor() {
     this.audio.preload = 'metadata';
-    this.audio.volume = 0.45;
+    this.audio.volume = 0.32;
     this.shuffle();
     this.audio.addEventListener('ended', () => this.next());
     this.bind();
@@ -99,8 +99,8 @@ export class MusicPlayer {
   setScreen(screen: string): void {
     const el = document.querySelector<HTMLElement>('#music-player');
     if (el) el.hidden = screen === 'playing' || screen === 'paused';
-    if (screen === 'playing') this.audio.volume = 0.28;
-    else this.audio.volume = 0.45;
+    if (screen === 'playing') this.audio.volume = 0.22;
+    else this.audio.volume = 0.32;
     this.render();
   }
 
